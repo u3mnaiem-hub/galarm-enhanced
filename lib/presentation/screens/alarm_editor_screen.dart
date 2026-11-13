@@ -1,0 +1,351 @@
+import 'package:audioplayers/audioplayers.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:uuid/uuid.dart';
+import '../../domain/entities/alarm.dart';
+import '../providers/app_providers.dart';
+
+class AlarmEditorScreen extends ConsumerStatefulWidget {
+  final Alarm? existing;
+  const AlarmEditorScreen({super.key, this.existing});
+
+  @override
+  ConsumerState<AlarmEditorScreen> createState() => _AlarmEditorScreenState();
+}
+
+class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _titleCtrl;
+  late final TextEditingController _notesCtrl;
+
+  late DateTime _selectedDate;
+  late TimeOfDay _selectedTime;
+  late AlarmType _alarmType;
+  late RepeatFrequency _repeatFreq;
+  late int _customInterval;
+  late CustomRepeatUnit _customUnit;
+  late List<int> _weekdays;
+
+  late int _snoozeMinutes;
+  late int _maxSnoozeCount;
+  late int _ringDurationSec;
+  late bool _autoSnooze;
+
+  late String _ringtoneUri;
+  late double _volume;
+  late bool _gradualVolume;
+  late bool _vibrate;
+  late bool _ringOnVibrateSilent;
+
+  final AudioPlayer _previewPlayer = AudioPlayer();
+  bool _isPreviewing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    final initialLocal = (e?.startAtUtc ?? DateTime.now().add(const Duration(minutes: 5))).toLocal();
+
+    _titleCtrl = TextEditingController(text: e?.title ?? '');
+    _notesCtrl = TextEditingController(text: e?.notes ?? '');
+    _selectedDate = DateTime(initialLocal.year, initialLocal.month, initialLocal.day);
+    _selectedTime = TimeOfDay(hour: initialLocal.hour, minute: initialLocal.minute);
+    _alarmType = e?.type ?? AlarmType.personal;
+    _repeatFreq = e?.repeatRule.frequency ?? RepeatFrequency.none;
+    _customInterval = e?.repeatRule.interval ?? 1;
+    _customUnit = e?.repeatRule.customUnit ?? CustomRepeatUnit.days;
+    _weekdays = [...(e?.repeatRule.weekdays ?? const <int>[])];
+
+    _snoozeMinutes = e?.snoozeConfig.snoozeDurationMinutes ?? 5;
+    _maxSnoozeCount = e?.snoozeConfig.maxSnoozeCount ?? 3;
+    _ringDurationSec = e?.snoozeConfig.ringDurationSeconds ?? 0;
+    _autoSnooze = e?.snoozeConfig.autoSnooze ?? true;
+
+    _ringtoneUri = e?.ringtoneUri ?? 'default';
+    _volume = e?.volume ?? 0.85;
+    _gradualVolume = e?.gradualVolume ?? true;
+    _vibrate = e?.vibrate ?? true;
+    _ringOnVibrateSilent = e?.ringOnVibrateSilent ?? true;
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _notesCtrl.dispose();
+    _previewPlayer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickCustomAudio() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.audio);
+    if (result != null && result.files.single.path != null) {
+      setState(() => _ringtoneUri = result.files.single.path!);
+    }
+  }
+
+  Future<void> _togglePreview() async {
+    if (_isPreviewing) {
+      await _previewPlayer.stop();
+      setState(() => _isPreviewing = false);
+      return;
+    }
+    if (_ringtoneUri.startsWith('/')) {
+      await _previewPlayer.setVolume(_volume);
+      await _previewPlayer.play(DeviceFileSource(_ringtoneUri));
+      setState(() => _isPreviewing = true);
+    }
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    final localDt = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      _selectedTime.hour,
+      _selectedTime.minute,
+    );
+    String tzId = 'UTC';
+    try {
+      tzId = await FlutterTimezone.getLocalTimezone();
+    } catch (_) {}
+
+    final nowUtc = DateTime.now().toUtc();
+    final alarm = Alarm(
+      id: widget.existing?.id ?? const Uuid().v4(),
+      ownerId: widget.existing?.ownerId ?? ref.read(currentUserIdProvider),
+      title: _titleCtrl.text.trim(),
+      notes: _notesCtrl.text.trim(),
+      startAtUtc: localDt.toUtc(),
+      creatorTimezoneId: widget.existing?.creatorTimezoneId ?? tzId,
+      repeatRule: RepeatRule(
+        frequency: _repeatFreq,
+        interval: _customInterval,
+        customUnit: _customUnit,
+        weekdays: _weekdays,
+        dayOfMonth: _selectedDate.day,
+      ),
+      snoozeConfig: SnoozeConfig(
+        snoozeDurationMinutes: _snoozeMinutes,
+        maxSnoozeCount: _maxSnoozeCount,
+        autoSnooze: _autoSnooze,
+        ringDurationSeconds: _ringDurationSec,
+      ),
+      ringtoneUri: _ringtoneUri,
+      volume: _volume,
+      gradualVolume: _gradualVolume,
+      vibrate: _vibrate,
+      ringOnVibrateSilent: _ringOnVibrateSilent,
+      type: _alarmType,
+      state: AlarmState.upcoming,
+      isEnabled: true,
+      updatedAtUtc: nowUtc,
+      participants: widget.existing?.participants ?? const [],
+    );
+
+    await ref.read(alarmRepositoryProvider).saveAlarm(alarm);
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.existing == null ? 'New Alarm' : 'Edit Alarm'),
+        actions: [
+          if (widget.existing != null)
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              onPressed: () async {
+                await ref
+                    .read(alarmRepositoryProvider)
+                    .deleteAlarm(widget.existing!.id);
+                if (mounted) Navigator.of(context).pop();
+              },
+            ),
+        ],
+      ),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            TextFormField(
+              controller: _titleCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Alarm Title',
+                border: OutlineInputBorder(),
+              ),
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? 'Title is required' : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _notesCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Notes (optional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SegmentedButton<AlarmType>(
+              segments: const [
+                ButtonSegment(value: AlarmType.personal, label: Text('Personal')),
+                ButtonSegment(value: AlarmType.group, label: Text('Group')),
+                ButtonSegment(value: AlarmType.buddy, label: Text('Buddy')),
+              ],
+              selected: {_alarmType},
+              onSelectionChanged: (s) => setState(() => _alarmType = s.first),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _selectedDate,
+                        firstDate: DateTime(2024),
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null) setState(() => _selectedDate = picked);
+                    },
+                    icon: const Icon(Icons.calendar_today),
+                    label: Text(
+                      '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final picked = await showTimePicker(
+                        context: context,
+                        initialTime: _selectedTime,
+                      );
+                      if (picked != null) setState(() => _selectedTime = picked);
+                    },
+                    icon: const Icon(Icons.access_time),
+                    label: Text(_selectedTime.format(context)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<RepeatFrequency>(
+              value: _repeatFreq,
+              decoration: const InputDecoration(
+                labelText: 'Repeat',
+                border: OutlineInputBorder(),
+              ),
+              items: RepeatFrequency.values
+                  .map((f) => DropdownMenuItem(value: f, child: Text(f.name)))
+                  .toList(),
+              onChanged: (v) {
+                if (v != null) setState(() => _repeatFreq = v);
+              },
+            ),
+            if (_repeatFreq == RepeatFrequency.weekly) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                children: List.generate(7, (i) {
+                  final day = i + 1;
+                  const labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+                  final selected = _weekdays.contains(day);
+                  return FilterChip(
+                    label: Text(labels[i]),
+                    selected: selected,
+                    onSelected: (v) {
+                      setState(() {
+                        if (v) {
+                          _weekdays.add(day);
+                        } else {
+                          _weekdays.remove(day);
+                        }
+                      });
+                    },
+                  );
+                }),
+              ),
+            ],
+            const Divider(height: 32),
+            Text('Snooze & Ringing', style: Theme.of(context).textTheme.titleMedium),
+            SwitchListTile(
+              title: const Text('Ring even on Vibrate / Silent'),
+              value: _ringOnVibrateSilent,
+              onChanged: (v) => setState(() => _ringOnVibrateSilent = v),
+            ),
+            SwitchListTile(
+              title: const Text('Gradual volume increase'),
+              value: _gradualVolume,
+              onChanged: (v) => setState(() => _gradualVolume = v),
+            ),
+            SwitchListTile(
+              title: const Text('Vibrate'),
+              value: _vibrate,
+              onChanged: (v) => setState(() => _vibrate = v),
+            ),
+            SwitchListTile(
+              title: const Text('Auto-snooze after ring duration'),
+              value: _autoSnooze,
+              onChanged: (v) => setState(() => _autoSnooze = v),
+            ),
+            ListTile(
+              title: Text('Ring Duration: $_ringDurationSec sec (0 = continuous)'),
+              subtitle: Slider(
+                value: _ringDurationSec.toDouble(),
+                min: 0,
+                max: 60,
+                divisions: 12,
+                onChanged: (v) => setState(() => _ringDurationSec = v.round()),
+              ),
+            ),
+            ListTile(
+              title: Text('Volume: ${(_volume * 100).round()}%'),
+              subtitle: Slider(
+                value: _volume,
+                min: 0.1,
+                max: 1.0,
+                onChanged: (v) => setState(() => _volume = v),
+              ),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _pickCustomAudio,
+                    icon: const Icon(Icons.music_note),
+                    label: Text(
+                      _ringtoneUri == 'default'
+                          ? 'Default Ringtone'
+                          : 'Custom Audio Selected',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  onPressed: _togglePreview,
+                  icon: Icon(_isPreviewing ? Icons.stop : Icons.play_arrow),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            FilledButton(
+              onPressed: _save,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 14),
+                child: Text('Save Alarm'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
