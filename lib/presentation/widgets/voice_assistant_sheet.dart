@@ -108,6 +108,7 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet> {
         await voice.speak(reply, language: _language);
         break;
 
+      case VoiceIntentAction.enableAlarm:
       case VoiceIntentAction.disableAlarm:
       case VoiceIntentAction.deleteAlarm:
         final query = (intent.title ?? '').toLowerCase();
@@ -122,11 +123,14 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet> {
         if (intent.action == VoiceIntentAction.deleteAlarm) {
           await repo.deleteAlarm(match.id);
         } else {
-          await repo.saveAlarm(match.copyWith(isEnabled: false));
+          final shouldEnable = intent.action == VoiceIntentAction.enableAlarm;
+          await repo.saveAlarm(match.copyWith(isEnabled: shouldEnable));
         }
-        final reply = intent.action == VoiceIntentAction.deleteAlarm
-            ? 'تم حذف منبه ${match.title}'
-            : 'تم إيقاف منبه ${match.title}';
+        final reply = switch (intent.action) {
+          VoiceIntentAction.deleteAlarm => 'تم حذف منبه ${match.title}',
+          VoiceIntentAction.enableAlarm => 'تم تشغيل منبه ${match.title}',
+          _ => 'تم إيقاف منبه ${match.title}',
+        };
         setState(() => _statusMessage = reply);
         await voice.speak(reply, language: _language);
         break;
