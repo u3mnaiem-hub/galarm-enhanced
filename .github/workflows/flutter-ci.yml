@@ -35,8 +35,8 @@ jobs:
           if [ -f android/app/build.gradle ]; then
             sed -i 's/minSdkVersion .*/minSdkVersion 26/g' android/app/build.gradle
             sed -i 's/minSdk = .*/minSdk = 26/g' android/app/build.gradle
-            sed -i 's/compileSdk = .*/compileSdk = 35/g' android/app/build.gradle
-            sed -i 's/targetSdk = .*/targetSdk = 35/g' android/app/build.gradle
+            sed -i 's/compileSdk = .*/compileSdk = 34/g' android/app/build.gradle
+            sed -i 's/targetSdk = .*/targetSdk = 34/g' android/app/build.gradle
           fi
 
       - name: Install dependencies & generate Drift code
