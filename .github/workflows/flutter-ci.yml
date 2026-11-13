@@ -33,6 +33,8 @@ jobs:
           cp -r /tmp/custom_backup/test .
           cp -r /tmp/custom_backup/android/app/src/main/* android/app/src/main/
           if [ -f android/app/build.gradle ]; then
+            sed -i 's/namespace = .*/namespace = "com.galarmenhanced.app"/g' android/app/build.gradle
+            sed -i 's/applicationId = .*/applicationId = "com.galarmenhanced.app"/g' android/app/build.gradle
             sed -i 's/minSdkVersion .*/minSdkVersion 26/g' android/app/build.gradle
             sed -i 's/minSdk = .*/minSdk = 26/g' android/app/build.gradle
             sed -i 's/compileSdk = .*/compileSdk = 35/g' android/app/build.gradle
