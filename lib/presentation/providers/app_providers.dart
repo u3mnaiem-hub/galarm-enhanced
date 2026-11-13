@@ -52,8 +52,5 @@ final blockedUsersStreamProvider = StreamProvider((ref) {
 final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.system);
 final localeProvider = StateProvider<Locale?>((ref) => null);
 final use24HourFormatProvider = StateProvider<bool>((ref) => false);
-
-/// Feature flag for optional monetization (AdMob test IDs + Play Billing).
-final monetizationEnabledProvider = StateProvider<bool>((ref) => false);
 final currentUserIdProvider = StateProvider<String>((ref) => 'local_user');
 final currentUserNameProvider = StateProvider<String>((ref) => 'Me');

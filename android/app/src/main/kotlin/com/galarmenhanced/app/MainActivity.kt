@@ -110,6 +110,12 @@ class MainActivity : FlutterActivity() {
             }
     }
 
+    override fun onDestroy() {
+        voiceChannel?.dispose()
+        voiceChannel = null
+        super.onDestroy()
+    }
+
     private fun scheduleExactAlarm(args: Map<*, *>): Boolean {
         val requestCode = (args["requestCode"] as? Number)?.toInt() ?: return false
         val alarmId = args["alarmId"] as? String ?: return false

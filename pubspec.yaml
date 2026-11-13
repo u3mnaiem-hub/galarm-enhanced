@@ -45,10 +45,6 @@ dependencies:
   url_launcher: ^6.3.0
   connectivity_plus: ^6.0.5
 
-  # Optional Monetization (behind feature flag)
-  google_mobile_ads: ^5.1.0
-  in_app_purchase: ^3.2.0
-
 dev_dependencies:
   flutter_test:
     sdk: flutter
