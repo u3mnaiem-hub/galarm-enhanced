@@ -38,6 +38,13 @@ jobs:
             sed -i 's/compileSdk = .*/compileSdk = 34/g' android/app/build.gradle
             sed -i 's/targetSdk = .*/targetSdk = 34/g' android/app/build.gradle
           fi
+          if [ -f android/settings.gradle ]; then
+            sed -i 's/id "com.android.application" version "[^"]*"/id "com.android.application" version "8.5.2"/g' android/settings.gradle
+            sed -i 's/id "org.jetbrains.kotlin.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "2.0.21"/g' android/settings.gradle
+          fi
+          if [ -f android/gradle/wrapper/gradle-wrapper.properties ]; then
+            sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+          fi
 
       - name: Install dependencies & generate Drift code
         run: |
