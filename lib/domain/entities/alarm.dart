@@ -16,6 +16,9 @@ class RepeatRule {
   final CustomRepeatUnit customUnit;
   final List<int> weekdays; // 1 = Monday .. 7 = Sunday (ISO 8601)
   final int? dayOfMonth;
+  final bool lastDayOfMonth;
+  final int? nthWeekday; // e.g. 2 for 2nd Saturday of month
+  final String? customPreset;
   final DateTime? endDateUtc;
   final int? maxOccurrences;
 
@@ -25,11 +28,43 @@ class RepeatRule {
     this.customUnit = CustomRepeatUnit.days,
     this.weekdays = const [],
     this.dayOfMonth,
+    this.lastDayOfMonth = false,
+    this.nthWeekday,
+    this.customPreset,
     this.endDateUtc,
     this.maxOccurrences,
   });
 
   bool get isRecurring => frequency != RepeatFrequency.none;
+
+  String get displayLabel {
+    if (frequency != RepeatFrequency.custom) {
+      return frequency.name.toUpperCase();
+    }
+    switch (customPreset) {
+      case 'alternate_days':
+        return 'Repeat on alternate days';
+      case 'every_3_days':
+        return 'Repeat every 3 days';
+      case 'every_2_weeks':
+        return 'Repeat every 2 weeks';
+      case 'quarterly':
+        return 'Repeat every 3 months (quarterly)';
+      case 'last_day_of_month':
+        return 'Repeat last day of every month';
+      case '2nd_saturday_of_month':
+        return 'Repeat on 2nd Saturday of every month';
+      default:
+        if (lastDayOfMonth) return 'Repeat last day of every month';
+        if (nthWeekday == 2 && weekdays.contains(DateTime.saturday)) {
+          return 'Repeat on 2nd Saturday of every month';
+        }
+        if (customUnit == CustomRepeatUnit.days && interval == 2) {
+          return 'Repeat on alternate days';
+        }
+        return 'Every $interval ${customUnit.name}';
+    }
+  }
 
   Map<String, dynamic> toJson() => {
         'frequency': frequency.name,
@@ -37,6 +72,9 @@ class RepeatRule {
         'customUnit': customUnit.name,
         'weekdays': weekdays,
         'dayOfMonth': dayOfMonth,
+        'lastDayOfMonth': lastDayOfMonth,
+        'nthWeekday': nthWeekday,
+        'customPreset': customPreset,
         'endDateUtc': endDateUtc?.toIso8601String(),
         'maxOccurrences': maxOccurrences,
       };
@@ -57,6 +95,9 @@ class RepeatRule {
               .toList() ??
           const [],
       dayOfMonth: (json['dayOfMonth'] as num?)?.toInt(),
+      lastDayOfMonth: json['lastDayOfMonth'] as bool? ?? false,
+      nthWeekday: (json['nthWeekday'] as num?)?.toInt(),
+      customPreset: json['customPreset'] as String?,
       endDateUtc: json['endDateUtc'] != null
           ? DateTime.tryParse(json['endDateUtc'] as String)?.toUtc()
           : null,

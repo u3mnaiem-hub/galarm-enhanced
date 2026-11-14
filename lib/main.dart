@@ -22,17 +22,26 @@ Future<void> main() async {
 
   final prefs = await SharedPreferences.getInstance();
   final seenOnboarding = prefs.getBool('seen_onboarding') ?? false;
+  final seenAuth = prefs.getBool('seen_auth') ?? false;
 
   runApp(
     ProviderScope(
-      child: GAlarmEnhancedApp(initialSeenOnboarding: seenOnboarding),
+      child: GAlarmEnhancedApp(
+        initialSeenOnboarding: seenOnboarding,
+        initialAuthenticated: seenAuth,
+      ),
     ),
   );
 }
 
 class GAlarmEnhancedApp extends ConsumerStatefulWidget {
   final bool initialSeenOnboarding;
-  const GAlarmEnhancedApp({super.key, required this.initialSeenOnboarding});
+  final bool initialAuthenticated;
+  const GAlarmEnhancedApp({
+    super.key,
+    required this.initialSeenOnboarding,
+    this.initialAuthenticated = false,
+  });
 
   @override
   ConsumerState<GAlarmEnhancedApp> createState() => _GAlarmEnhancedAppState();
@@ -40,7 +49,7 @@ class GAlarmEnhancedApp extends ConsumerStatefulWidget {
 
 class _GAlarmEnhancedAppState extends ConsumerState<GAlarmEnhancedApp> {
   late bool _seenOnboarding = widget.initialSeenOnboarding;
-  bool _authenticated = false;
+  late bool _authenticated = widget.initialAuthenticated;
 
   @override
   Widget build(BuildContext context) {
@@ -58,14 +67,18 @@ class _GAlarmEnhancedAppState extends ConsumerState<GAlarmEnhancedApp> {
       );
     } else if (!_authenticated) {
       home = PhoneAuthScreen(
-        onAuthenticated: () => setState(() => _authenticated = true),
+        onAuthenticated: () async {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('seen_auth', true);
+          if (mounted) setState(() => _authenticated = true);
+        },
       );
     } else {
       home = const HomeShell();
     }
 
     return MaterialApp(
-      title: 'G-Alarm Enhanced',
+      title: 'U3m Alarm',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),

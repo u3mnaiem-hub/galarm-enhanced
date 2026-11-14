@@ -71,7 +71,7 @@ class SettingsTab extends ConsumerWidget {
                 content: const SingleChildScrollView(
                   child: Text(
                     '• Xiaomi (MIUI/HyperOS): Enable Autostart + set Battery Saver to "No restrictions".\n'
-                    '• Samsung: Add G-Alarm Enhanced to "Never sleeping apps" in Device Care.\n'
+                    '• Samsung: Add U3m Alarm to "Never sleeping apps" in Device Care.\n'
                     '• Oppo/Realme: Allow Background Activity & Auto-launch in App Info.\n'
                     '• Huawei: Disable "Manage automatically" in App Launch and enable Auto-launch + Run in background.',
                   ),
@@ -130,6 +130,41 @@ class SettingsTab extends ConsumerWidget {
           ),
           const Divider(),
           ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('About / عن البرنامج'),
+            subtitle: const Text('Developer: yousry mahmoud naiem | يسري محمود نعيم'),
+            onTap: () => showDialog(
+              context: context,
+              builder: (_) => AlertDialog(
+                title: const Text('About U3m Alarm'),
+                content: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'U3m Alarm',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    SizedBox(height: 8),
+                    Text('Smart Personal & Social Alarm Application'),
+                    SizedBox(height: 12),
+                    Text(
+                      'Developer: yousry mahmoud naiem\nالمطور: يسري محمود نعيم',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Divider(),
+          ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('Sign Out'),
             onTap: () async {
@@ -150,6 +185,7 @@ class SettingsTab extends ConsumerWidget {
               } catch (_) {}
             },
           ),
+          const SizedBox(height: 32),
         ],
       ),
     );

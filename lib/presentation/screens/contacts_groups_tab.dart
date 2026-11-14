@@ -70,7 +70,7 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
       scheme: 'sms',
       path: phone,
       queryParameters: {
-        'body': 'Join me on G-Alarm Enhanced so we can share alarms & reminders!',
+        'body': 'Join me on U3m Alarm so we can share alarms & reminders!',
       },
     );
     if (await canLaunchUrl(uri)) {
@@ -125,7 +125,7 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
                         ),
                       ),
                     if (_matchedUsers.isNotEmpty) ...[
-                      Text('On G-Alarm Enhanced',
+                      Text('On U3m Alarm',
                           style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 8),
                       ..._matchedUsers.map((u) => ListTile(

@@ -1,4 +1,4 @@
-name: Build Android APK (G-Alarm Enhanced)
+name: Build Android APK (U3m Alarm)
 
 on:
   push:
@@ -58,9 +58,10 @@ jobs:
       - name: Build Release APK
         run: |
           flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk "build/app/outputs/flutter-apk/U3m Alarm.apk"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GAlarm-Enhanced-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: U3m Alarm
+          path: build/app/outputs/flutter-apk/U3m Alarm.apk

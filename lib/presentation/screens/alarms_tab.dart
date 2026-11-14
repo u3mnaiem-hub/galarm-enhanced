@@ -17,7 +17,7 @@ class AlarmsTab extends ConsumerWidget {
     final use24h = ref.watch(use24HourFormatProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Alarms')),
+      appBar: AppBar(title: const Text('U3m Alarm')),
       body: alarmsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
@@ -28,7 +28,7 @@ class AlarmsTab extends ConsumerWidget {
             );
           }
           return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 110),
             itemCount: alarms.length,
             itemBuilder: (context, index) {
               final alarm = alarms[index];
@@ -38,115 +38,194 @@ class AlarmsTab extends ConsumerWidget {
               final fmt = DateFormat(use24h ? 'HH:mm' : 'hh:mm a');
               final dateFmt = DateFormat('EEE, d MMM');
               final isMissed = alarm.state == AlarmState.missed;
+              final cs = Theme.of(context).colorScheme;
 
               return Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => AlarmEditorScreen(existing: alarm),
+                margin: const EdgeInsets.only(bottom: 6),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => AlarmEditorScreen(existing: alarm),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: alarm.isEnabled
+                                    ? cs.primaryContainer.withOpacity(0.75)
+                                    : cs.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                fmt.format(localTime),
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: isMissed
+                                      ? Colors.red
+                                      : (alarm.isEnabled ? cs.onPrimaryContainer : cs.outline),
                                 ),
                               ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    fmt.format(localTime),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .headlineMedium
-                                        ?.copyWith(
-                                          color: isMissed ? Colors.red : null,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                                    alarm.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                   Text(
-                                    '${alarm.title} • ${dateFmt.format(localTime)}',
-                                    style: Theme.of(context).textTheme.titleMedium,
+                                    '${dateFmt.format(localTime)}${alarm.notes.isNotEmpty ? " • ${alarm.notes}" : ""}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: cs.onSurfaceVariant,
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                          ),
-                          Switch(
-                            value: alarm.isEnabled,
-                            onChanged: (val) {
-                              ref.read(alarmRepositoryProvider).saveAlarm(
-                                    alarm.copyWith(
-                                      isEnabled: val,
-                                      state: val
-                                          ? AlarmState.upcoming
-                                          : AlarmState.archived,
-                                    ),
-                                  );
-                            },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 4,
-                        children: [
-                          Chip(
-                            label: Text(alarm.type.name.toUpperCase()),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                          if (alarm.repeatRule.isRecurring)
-                            Chip(
-                              label: Text(alarm.repeatRule.frequency.name),
-                              visualDensity: VisualDensity.compact,
-                            ),
-                          if (isMissed)
-                            const Chip(
-                              label: Text(
-                                'MISSED',
-                                style: TextStyle(color: Colors.red),
-                              ),
-                              visualDensity: VisualDensity.compact,
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton.icon(
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => AlarmHistoryScreen(alarm: alarm),
-                              ),
-                            ),
-                            icon: const Icon(Icons.history, size: 18),
-                            label: const Text('History'),
-                          ),
-                          if (alarm.type != AlarmType.personal)
-                            TextButton.icon(
-                              onPressed: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => AlarmChatScreen(alarm: alarm),
+                            SizedBox(
+                              height: 28,
+                              child: Transform.scale(
+                                scale: 0.78,
+                                child: Switch(
+                                  value: alarm.isEnabled,
+                                  onChanged: (val) {
+                                    ref.read(alarmRepositoryProvider).saveAlarm(
+                                          alarm.copyWith(
+                                            isEnabled: val,
+                                            state: val
+                                                ? AlarmState.upcoming
+                                                : AlarmState.archived,
+                                          ),
+                                        );
+                                  },
                                 ),
                               ),
-                              icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                              label: const Text('Chat'),
                             ),
-                          TextButton(
-                            onPressed: () => ref
-                                .read(alarmRepositoryProvider)
-                                .markOccurrenceDone(alarm),
-                            child: const Text('Done'),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: cs.secondaryContainer.withOpacity(0.6),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                alarm.type.name.toUpperCase(),
+                                style: TextStyle(
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: cs.onSecondaryContainer,
+                                ),
+                              ),
+                            ),
+                            if (alarm.repeatRule.isRecurring) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: cs.tertiaryContainer.withOpacity(0.6),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  alarm.repeatRule.displayLabel,
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: cs.onTertiaryContainer,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            if (isMissed) ...[
+                              const SizedBox(width: 6),
+                              const Text(
+                                'MISSED',
+                                style: TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                            const Spacer(),
+                            InkWell(
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => AlarmHistoryScreen(alarm: alarm),
+                                ),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.history, size: 14, color: cs.primary),
+                                    const SizedBox(width: 3),
+                                    Text('History', style: TextStyle(fontSize: 11, color: cs.primary)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            if (alarm.type != AlarmType.personal)
+                              InkWell(
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => AlarmChatScreen(alarm: alarm),
+                                  ),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.chat_bubble_outline, size: 14, color: cs.primary),
+                                      const SizedBox(width: 3),
+                                      Text('Chat', style: TextStyle(fontSize: 11, color: cs.primary)),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            InkWell(
+                              onTap: () => ref
+                                  .read(alarmRepositoryProvider)
+                                  .markOccurrenceDone(alarm),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                child: Text(
+                                  'Done',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: cs.primary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               );

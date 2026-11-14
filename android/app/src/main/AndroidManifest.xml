@@ -20,6 +20,7 @@
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <queries>
         <intent>
@@ -28,7 +29,7 @@
     </queries>
 
     <application
-        android:label="G-Alarm Enhanced"
+        android:label="U3m Alarm"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 

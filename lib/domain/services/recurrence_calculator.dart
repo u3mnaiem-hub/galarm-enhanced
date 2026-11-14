@@ -88,6 +88,22 @@ class RecurrenceCalculator {
       case RepeatFrequency.yearly:
         return _addCalendarMonths(currentUtc, 12 * interval, null, timezoneId);
       case RepeatFrequency.custom:
+        if (rule.lastDayOfMonth || rule.customPreset == 'last_day_of_month') {
+          return _addCalendarMonthsLastDay(currentUtc, interval, timezoneId);
+        }
+        if ((rule.nthWeekday != null && rule.weekdays.isNotEmpty) ||
+            rule.customPreset == '2nd_saturday_of_month') {
+          final nth = rule.nthWeekday ?? 2;
+          final weekday =
+              rule.weekdays.isNotEmpty ? rule.weekdays.first : DateTime.saturday;
+          return _addCalendarMonthsNthWeekday(
+            currentUtc,
+            interval,
+            nth,
+            weekday,
+            timezoneId,
+          );
+        }
         switch (rule.customUnit) {
           case CustomRepeatUnit.hours:
             return currentUtc.add(Duration(hours: interval));
@@ -198,6 +214,55 @@ class RecurrenceCalculator {
   static int _daysInMonth(int year, int month) {
     final nextMonth = month == 12 ? DateTime.utc(year + 1, 1, 1) : DateTime.utc(year, month + 1, 1);
     return nextMonth.subtract(const Duration(days: 1)).day;
+  }
+
+  static DateTime _addCalendarMonthsLastDay(
+    DateTime currentUtc,
+    int months,
+    String timezoneId,
+  ) {
+    final loc = _resolveLocation(timezoneId);
+    final local = tz.TZDateTime.from(currentUtc, loc);
+    final totalMonths = local.year * 12 + (local.month - 1) + months;
+    final targetYear = totalMonths ~/ 12;
+    final targetMonth = (totalMonths % 12) + 1;
+    final lastDay = _daysInMonth(targetYear, targetMonth);
+    return tz.TZDateTime(
+      loc,
+      targetYear,
+      targetMonth,
+      lastDay,
+      local.hour,
+      local.minute,
+      local.second,
+    ).toUtc();
+  }
+
+  static DateTime _addCalendarMonthsNthWeekday(
+    DateTime currentUtc,
+    int months,
+    int nth,
+    int targetWeekday,
+    String timezoneId,
+  ) {
+    final loc = _resolveLocation(timezoneId);
+    final local = tz.TZDateTime.from(currentUtc, loc);
+    final totalMonths = local.year * 12 + (local.month - 1) + months;
+    final targetYear = totalMonths ~/ 12;
+    final targetMonth = (totalMonths % 12) + 1;
+    final firstOfMonth = DateTime.utc(targetYear, targetMonth, 1);
+    final offset = (targetWeekday - firstOfMonth.weekday + 7) % 7;
+    final maxDays = _daysInMonth(targetYear, targetMonth);
+    final day = (1 + offset + (nth - 1) * 7).clamp(1, maxDays);
+    return tz.TZDateTime(
+      loc,
+      targetYear,
+      targetMonth,
+      day,
+      local.hour,
+      local.minute,
+      local.second,
+    ).toUtc();
   }
 
   /// Converts a UTC timestamp into the local wall-clock time of [targetTimezoneId].

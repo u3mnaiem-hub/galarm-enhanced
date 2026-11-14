@@ -6,6 +6,7 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:uuid/uuid.dart';
 import '../../domain/entities/alarm.dart';
 import '../providers/app_providers.dart';
+import 'custom_repeat_screen.dart';
 
 class AlarmEditorScreen extends ConsumerStatefulWidget {
   final Alarm? existing;
@@ -27,6 +28,9 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
   late int _customInterval;
   late CustomRepeatUnit _customUnit;
   late List<int> _weekdays;
+  late bool _lastDayOfMonth;
+  int? _nthWeekday;
+  String? _customPreset;
 
   late int _snoozeMinutes;
   late int _maxSnoozeCount;
@@ -54,9 +58,12 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
     _selectedTime = TimeOfDay(hour: initialLocal.hour, minute: initialLocal.minute);
     _alarmType = e?.type ?? AlarmType.personal;
     _repeatFreq = e?.repeatRule.frequency ?? RepeatFrequency.none;
-    _customInterval = e?.repeatRule.interval ?? 1;
+    _customInterval = e?.repeatRule.interval ?? 2;
     _customUnit = e?.repeatRule.customUnit ?? CustomRepeatUnit.days;
     _weekdays = [...(e?.repeatRule.weekdays ?? const <int>[])];
+    _lastDayOfMonth = e?.repeatRule.lastDayOfMonth ?? false;
+    _nthWeekday = e?.repeatRule.nthWeekday;
+    _customPreset = e?.repeatRule.customPreset ?? 'alternate_days';
 
     _snoozeMinutes = e?.snoozeConfig.snoozeDurationMinutes ?? 5;
     _maxSnoozeCount = e?.snoozeConfig.maxSnoozeCount ?? 3;
@@ -126,6 +133,9 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
         customUnit: _customUnit,
         weekdays: _weekdays,
         dayOfMonth: _selectedDate.day,
+        lastDayOfMonth: _lastDayOfMonth,
+        nthWeekday: _nthWeekday,
+        customPreset: _repeatFreq == RepeatFrequency.custom ? _customPreset : null,
       ),
       snoozeConfig: SnoozeConfig(
         snoozeDurationMinutes: _snoozeMinutes,
@@ -149,8 +159,37 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
+  Future<void> _openCustomRepeatScreen() async {
+    final currentRule = RepeatRule(
+      frequency: RepeatFrequency.custom,
+      interval: _customInterval,
+      customUnit: _customUnit,
+      weekdays: _weekdays,
+      lastDayOfMonth: _lastDayOfMonth,
+      nthWeekday: _nthWeekday,
+      customPreset: _customPreset,
+    );
+    final picked = await Navigator.of(context).push<RepeatRule>(
+      MaterialPageRoute(
+        builder: (_) => CustomRepeatScreen(initialRule: currentRule),
+      ),
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _repeatFreq = RepeatFrequency.custom;
+        _customInterval = picked.interval;
+        _customUnit = picked.customUnit;
+        _weekdays = [...picked.weekdays];
+        _lastDayOfMonth = picked.lastDayOfMonth;
+        _nthWeekday = picked.nthWeekday;
+        _customPreset = picked.customPreset;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewPadding.bottom;
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.existing == null ? 'New Alarm' : 'Edit Alarm'),
@@ -167,11 +206,13 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
             ),
         ],
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
+      body: SafeArea(
+        top: false,
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: EdgeInsets.fromLTRB(14, 12, 14, 28 + bottomInset),
+            children: [
             TextFormField(
               controller: _titleCtrl,
               decoration: const InputDecoration(
@@ -246,10 +287,39 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
               items: RepeatFrequency.values
                   .map((f) => DropdownMenuItem(value: f, child: Text(f.name)))
                   .toList(),
-              onChanged: (v) {
-                if (v != null) setState(() => _repeatFreq = v);
+              onChanged: (v) async {
+                if (v == null) return;
+                setState(() => _repeatFreq = v);
+                if (v == RepeatFrequency.custom) {
+                  await _openCustomRepeatScreen();
+                }
               },
             ),
+            if (_repeatFreq == RepeatFrequency.custom) ...[
+              const SizedBox(height: 8),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.check_box, color: Color(0xFF00C853)),
+                  title: Text(
+                    RepeatRule(
+                      frequency: RepeatFrequency.custom,
+                      interval: _customInterval,
+                      customUnit: _customUnit,
+                      weekdays: _weekdays,
+                      lastDayOfMonth: _lastDayOfMonth,
+                      nthWeekday: _nthWeekday,
+                      customPreset: _customPreset,
+                    ).displayLabel,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                  trailing: TextButton(
+                    onPressed: _openCustomRepeatScreen,
+                    child: const Text('Change'),
+                  ),
+                  onTap: _openCustomRepeatScreen,
+                ),
+              ),
+            ],
             if (_repeatFreq == RepeatFrequency.weekly) ...[
               const SizedBox(height: 8),
               Wrap(
@@ -339,12 +409,13 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
             FilledButton(
               onPressed: _save,
               child: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 14),
+                padding: EdgeInsets.symmetric(vertical: 12),
                 child: Text('Save Alarm'),
               ),
             ),
           ],
         ),
+      ),
       ),
     );
   }

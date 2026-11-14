@@ -140,9 +140,10 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(24),
-        children: [
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          children: [
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -211,6 +212,7 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
             ),
           ],
         ],
+        ),
       ),
     );
   }
