@@ -14,18 +14,18 @@ extension TrX on BuildContext {
 }
 
 const _arLabels = <String, String>{
-  'HOURLY': 'ßá ÓÇÚÉ',
-  'DAILY': 'íæãíÇğ',
-  'WEEKLY': 'ÃÓÈæÚíÇğ',
-  'MONTHLY': 'ÔåÑíÇğ',
-  'YEARLY': 'ÓäæíÇğ',
-  'NONE': 'ãÑÉ æÇÍÏÉ',
-  'Repeat on alternate days': 'ÊßÑÇÑ íæã ÈÚÏ íæã',
-  'Repeat every 3 days': 'ÊßÑÇÑ ßá 3 ÃíÇã',
-  'Repeat every 2 weeks': 'ÊßÑÇÑ ßá ÃÓÈæÚíä',
-  'Repeat every 3 months (quarterly)': 'ÊßÑÇÑ ßá 3 ÔåæÑ',
-  'Repeat last day of every month': 'ÊßÑÇÑ ÂÎÑ íæã ãä ßá ÔåÑ',
-  'Repeat on 2nd Saturday of every month': 'ÊßÑÇÑ ËÇäí ÓÈÊ ãä ßá ÔåÑ',
+  'HOURLY': 'ÙƒÙ„ Ø³Ø§Ø¹Ø©',
+  'DAILY': 'ÙŠÙˆÙ…ÙŠØ§Ù‹',
+  'WEEKLY': 'Ø£Ø³Ø¨ÙˆØ¹ÙŠØ§Ù‹',
+  'MONTHLY': 'Ø´Ù‡Ø±ÙŠØ§Ù‹',
+  'YEARLY': 'Ø³Ù†ÙˆÙŠØ§Ù‹',
+  'NONE': 'Ù…Ø±Ø© ÙˆØ§Ø­Ø¯Ø©',
+  'Repeat on alternate days': 'ØªÙƒØ±Ø§Ø± ÙŠÙˆÙ… Ø¨Ø¹Ø¯ ÙŠÙˆÙ…',
+  'Repeat every 3 days': 'ØªÙƒØ±Ø§Ø± ÙƒÙ„ 3 Ø£ÙŠØ§Ù…',
+  'Repeat every 2 weeks': 'ØªÙƒØ±Ø§Ø± ÙƒÙ„ Ø£Ø³Ø¨ÙˆØ¹ÙŠÙ†',
+  'Repeat every 3 months (quarterly)': 'ØªÙƒØ±Ø§Ø± ÙƒÙ„ 3 Ø£Ø´Ù‡Ø±',
+  'Repeat last day of every month': 'ØªÙƒØ±Ø§Ø± Ø¢Ø®Ø± ÙŠÙˆÙ… Ù…Ù† ÙƒÙ„ Ø´Ù‡Ø±',
+  'Repeat on 2nd Saturday of every month': 'ØªÙƒØ±Ø§Ø± Ø«Ø§Ù†ÙŠ Ø³Ø¨Øª Ù…Ù† ÙƒÙ„ Ø´Ù‡Ø±',
 };
 
 extension TrLabelX on BuildContext {
@@ -37,14 +37,14 @@ extension TrLabelX on BuildContext {
     final m = RegExp(r'^Every (\d+) (\w+)$').firstMatch(label);
     if (m != null) {
       const units = {
-        'minutes': 'ÏŞíŞÉ',
-        'hours': 'ÓÇÚÉ',
-        'days': 'íæã',
-        'weeks': 'ÃÓÈæÚ',
-        'months': 'ÔåÑ',
-        'years': 'ÓäÉ',
+        'minutes': 'Ø¯Ù‚ÙŠÙ‚Ø©',
+        'hours': 'Ø³Ø§Ø¹Ø©',
+        'days': 'ÙŠÙˆÙ…',
+        'weeks': 'Ø£Ø³Ø¨ÙˆØ¹',
+        'months': 'Ø´Ù‡Ø±',
+        'years': 'Ø³Ù†Ø©',
       };
-      return 'ßá ${m.group(1)} ${units[m.group(2)] ?? m.group(2)}';
+      return 'ÙƒÙ„ ${m.group(1)} ${units[m.group(2)] ?? m.group(2)}';
     }
     return label;
   }
@@ -54,12 +54,12 @@ extension TrUnitX on BuildContext {
   String trUnit(String unit) {
     if (!isAr) return unit;
     const units = {
-      'minutes': 'ÏŞíŞÉ',
-      'hours': 'ÓÇÚÉ',
-      'days': 'íæã',
-      'weeks': 'ÃÓÈæÚ',
-      'months': 'ÔåÑ',
-      'years': 'ÓäÉ',
+      'minutes': 'Ø¯Ù‚ÙŠÙ‚Ø©',
+      'hours': 'Ø³Ø§Ø¹Ø©',
+      'days': 'ÙŠÙˆÙ…',
+      'weeks': 'Ø£Ø³Ø¨ÙˆØ¹',
+      'months': 'Ø´Ù‡Ø±',
+      'years': 'Ø³Ù†Ø©',
     };
     return units[unit] ?? unit;
   }
