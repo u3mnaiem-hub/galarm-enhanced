@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -13,20 +14,20 @@ class NotificationsTab extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notifications'),
+        title: Text(context.tr('Notifications', 'الإشعارات')),
         actions: [
           TextButton(
             onPressed: () => db.clearNotifications(),
-            child: const Text('Clear all'),
+            child: Text(context.tr('Clear all', 'مسح الكل')),
           ),
         ],
       ),
       body: notifsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) => Center(child: Text('${context.tr('Error', 'خطأ')}: $e')),
         data: (items) {
           if (items.isEmpty) {
-            return const Center(child: Text("You're all caught up!"));
+            return Center(child: Text(context.tr("You're all caught up!", 'لا توجد إشعارات جديدة.')));
           }
           return ListView.builder(
             itemCount: items.length,
@@ -46,7 +47,7 @@ class NotificationsTab extends ConsumerWidget {
                   ),
                 ),
                 subtitle: Text(
-                  '${n.body}\n${DateFormat('d MMM, hh:mm a').format(n.createdAtUtc.toLocal())}',
+                  '${n.body}\n${context.df('d MMM, hh:mm a').format(n.createdAtUtc.toLocal())}',
                 ),
                 isThreeLine: true,
                 onTap: () => db.markNotificationRead(n.id),

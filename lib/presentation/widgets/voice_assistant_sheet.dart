@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../../data/platform/native_voice_channel.dart';
 import '../../domain/entities/alarm.dart';
 import '../../domain/services/voice_alarm_parser.dart';
+import '../../l10n/tr.dart';
 import '../providers/app_providers.dart';
 
 class VoiceAssistantSheet extends ConsumerStatefulWidget {
@@ -36,6 +37,8 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet> {
   @override
   void initState() {
     super.initState();
+    final locale = ref.read(localeProvider);
+    if (locale?.languageCode == 'en') _language = 'en-US';
     final voice = ref.read(nativeVoiceChannelProvider);
     _sub = voice.events.listen(_onVoiceEvent);
     _startListening();
@@ -48,6 +51,8 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet> {
   }
 
   Future<void> _startListening() async {
+    final locale = ref.read(localeProvider);
+    if (locale?.languageCode == 'en') _language = 'en-US';
     final voice = ref.read(nativeVoiceChannelProvider);
     final hasPerm = await voice.hasRecordPermission();
     if (!hasPerm) {
@@ -86,6 +91,8 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet> {
   Future<void> _executeCommand(String text) async {
     final intent = VoiceAlarmParser.parse(text);
     final repo = ref.read(alarmRepositoryProvider);
+    final locale = ref.read(localeProvider);
+    if (locale?.languageCode == 'en') _language = 'en-US';
     final voice = ref.read(nativeVoiceChannelProvider);
     final alarms = ref.read(alarmsStreamProvider).valueOrNull ?? const [];
 
@@ -263,7 +270,7 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('المساعد الصوتي',
+                Text(context.tr('Voice Assistant', 'المساعد الصوتي'),
                     style: Theme.of(context).textTheme.titleLarge),
                 SegmentedButton<String>(
                   segments: const [

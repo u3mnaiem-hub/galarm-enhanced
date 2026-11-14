@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'alarms_tab.dart';
 import 'notifications_tab.dart';
@@ -41,7 +42,7 @@ class _HomeShellState extends State<HomeShell> {
                       builder: (_) => const VoiceAssistantSheet(),
                     );
                   },
-                  tooltip: 'Voice Assistant',
+                  tooltip: context.tr('Voice Assistant', 'المساعد الصوتي'),
                   child: const Icon(Icons.mic),
                 ),
                 const SizedBox(height: 12),
@@ -53,7 +54,7 @@ class _HomeShellState extends State<HomeShell> {
                     );
                   },
                   icon: const Icon(Icons.add_alarm),
-                  label: const Text('New Alarm'),
+                  label: Text(context.tr('New Alarm', 'منبه جديد')),
                 ),
               ],
             )
@@ -61,26 +62,26 @@ class _HomeShellState extends State<HomeShell> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
+        destinations: [
           NavigationDestination(
-            icon: Icon(Icons.alarm_outlined),
+            icon: const Icon(Icons.alarm_outlined),
             selectedIcon: Icon(Icons.alarm),
-            label: 'Alarms',
+            label: context.tr('Alarms', 'المنبهات'),
           ),
           NavigationDestination(
             icon: Icon(Icons.notifications_outlined),
             selectedIcon: Icon(Icons.notifications),
-            label: 'Notifications',
+            label: context.tr('Notifications', 'الإشعارات'),
           ),
           NavigationDestination(
             icon: Icon(Icons.group_outlined),
             selectedIcon: Icon(Icons.group),
-            label: 'Groups',
+            label: context.tr('Groups', 'المجموعات'),
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),
             selectedIcon: Icon(Icons.settings),
-            label: 'Settings',
+            label: context.tr('Settings', 'الإعدادات'),
           ),
         ],
       ),

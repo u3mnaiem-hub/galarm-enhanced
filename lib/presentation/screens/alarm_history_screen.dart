@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -14,7 +15,7 @@ class AlarmHistoryScreen extends ConsumerWidget {
     final db = ref.watch(appDatabaseProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text('${alarm.title} • History')),
+      appBar: AppBar(title: Text('${alarm.title} • ${context.tr('History', 'السجل')}')),
       body: FutureBuilder<List<AlarmOccurrencesTableData>>(
         future: db.getOccurrencesForAlarm(alarm.id),
         builder: (context, snap) {
@@ -33,14 +34,14 @@ class AlarmHistoryScreen extends ConsumerWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Text(
-                    'Done: $done • Missed: $missed of $total occurrences',
+                    context.tr('Done: $done • Missed: $missed of $total occurrences', 'تم: $done • فائت: $missed من $total'),
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
               ),
               const SizedBox(height: 12),
               if (items.isEmpty)
-                const Center(child: Text('No occurrence history recorded yet.')),
+                Center(child: Text(context.tr('No occurrence history recorded yet.', 'لا يوجد سجل تنبيهات بعد.'))),
               ...items.map((occ) {
                 final isMissed = occ.state == 'missed';
                 return ListTile(
@@ -49,11 +50,11 @@ class AlarmHistoryScreen extends ConsumerWidget {
                     color: isMissed ? Colors.red : Colors.green,
                   ),
                   title: Text(
-                    DateFormat('EEE, d MMM yyyy • hh:mm a')
+                    context.df('EEE, d MMM yyyy • hh:mm a')
                         .format(occ.scheduledAtUtc.toLocal()),
                   ),
                   subtitle: Text(
-                    'Status: ${occ.state.toUpperCase()} • Snoozes: ${occ.snoozeCount}',
+                    context.tr('Status: ${occ.state.toUpperCase()} • Snoozes: ${occ.snoozeCount}', 'الحالة: ${occ.state == 'missed' ? 'فائت' : 'تم'} • الغفوات: ${occ.snoozeCount}'),
                   ),
                 );
               }),

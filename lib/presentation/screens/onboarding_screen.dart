@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../l10n/tr.dart';
 import '../providers/app_providers.dart';
 
 class OnboardingScreen extends ConsumerStatefulWidget {
@@ -43,21 +44,21 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final pages = [
       _IntroSlide(
         icon: Icons.alarm_on_rounded,
-        title: 'Social Alarms & Reminders',
+        title: context.tr('Social Alarms & Reminders', 'منبهات وتذكيرات اجتماعية'),
         subtitle:
-            'Set personal alarms, coordinate group events across timezones, or send buddy reminders.',
+            context.tr('Set personal alarms, coordinate group events across timezones, or send buddy reminders.', 'اضبط منبهات شخصية، ونسّق فعاليات جماعية عبر المناطق الزمنية، أو أرسل تذكيرات لأصدقائك.'),
       ),
       _IntroSlide(
         icon: Icons.volume_up_rounded,
-        title: 'Rings Even on Silent',
+        title: context.tr('Rings Even on Silent', 'يرن حتى في الوضع الصامت'),
         subtitle:
-            'Full-screen lock-screen ringing over the ALARM audio stream with smart auto-snooze.',
+            context.tr('Full-screen lock-screen ringing over the ALARM audio stream with smart auto-snooze.', 'رنين بملء الشاشة فوق شاشة القفل عبر قناة صوت المنبه مع غفوة تلقائية ذكية.'),
       ),
       _IntroSlide(
         icon: Icons.chat_bubble_outline_rounded,
-        title: 'Live Chat & History',
+        title: context.tr('Live Chat & History', 'محادثة مباشرة وسجل'),
         subtitle:
-            'Confirm or decline group alarms, chat per alarm, and track recurring alarm history.',
+            context.tr('Confirm or decline group alarms, chat per alarm, and track recurring alarm history.', 'أكّد أو ارفض المنبهات الجماعية، وتحادث لكل منبه، وتابع سجل المنبهات المتكررة.'),
       ),
       _buildPermissionsWalkthrough(context),
     ];
@@ -70,7 +71,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               alignment: AlignmentDirectional.topEnd,
               child: TextButton(
                 onPressed: widget.onFinished,
-                child: const Text('Skip'),
+                child: Text(context.tr('Skip', 'تخطي')),
               ),
             ),
             Expanded(
@@ -112,7 +113,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         widget.onFinished();
                       }
                     },
-                    child: Text(_page == pages.length - 1 ? 'Get Started' : 'Next'),
+                    child: Text(_page == pages.length - 1 ? context.tr('Get Started', 'ابدأ الآن') : context.tr('Next', 'التالي')),
                   ),
                 ],
               ),
@@ -129,17 +130,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       padding: const EdgeInsets.all(20),
       children: [
         Text(
-          'Keep Your Alarms Reliable',
+          context.tr('Keep Your Alarms Reliable', 'لضمان رنين المنبهات في موعدها'),
           style: Theme.of(context).textTheme.headlineSmall,
         ),
         const SizedBox(height: 8),
-        const Text(
-          'Grant these permissions so alarms ring on time even when the phone is locked or in Doze mode. You can change any of them later in Settings.',
+        Text(
+          context.tr('Grant these permissions so alarms ring on time even when the phone is locked or in Doze mode. You can change any of them later in Settings.', 'امنح هذه الأذونات ليرن المنبه في موعده حتى والهاتف مقفل أو في وضع توفير الطاقة. يمكنك تغييرها لاحقاً من الإعدادات.'),
         ),
         const SizedBox(height: 16),
         _PermissionTile(
-          title: 'Exact Alarms (Android 12+)',
-          subtitle: 'Required to fire alarms at the exact second.',
+          title: context.tr('Exact Alarms (Android 12+)', 'المنبهات الدقيقة (أندرويد 12+)'),
+          subtitle: context.tr('Required to fire alarms at the exact second.', 'مطلوب لتشغيل المنبهات في الثانية المحددة.'),
           granted: _exactAlarmOk,
           onTap: () async {
             await native.openExactAlarmSettings();
@@ -147,8 +148,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           },
         ),
         _PermissionTile(
-          title: 'Full-Screen Alarm UI (Android 14+)',
-          subtitle: 'Shows Done / Snooze / Dismiss over the lock screen.',
+          title: context.tr('Full-Screen Alarm UI (Android 14+)', 'واجهة المنبه بملء الشاشة (أندرويد 14+)'),
+          subtitle: context.tr('Shows Done / Snooze / Dismiss over the lock screen.', 'تعرض تم / غفوة / إيقاف فوق شاشة القفل.'),
           granted: _fullScreenOk,
           onTap: () async {
             await native.openFullScreenIntentSettings();
@@ -156,8 +157,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           },
         ),
         _PermissionTile(
-          title: 'Ignore Battery Optimization',
-          subtitle: 'Prevents Xiaomi, Oppo, Samsung & Huawei from killing alarms.',
+          title: context.tr('Ignore Battery Optimization', 'تجاهل تحسين البطارية'),
+          subtitle: context.tr('Prevents Xiaomi, Oppo, Samsung & Huawei from killing alarms.', 'يمنع شاومي وأوبو وسامسونج وهواوي من إيقاف المنبهات.'),
           granted: _batteryOk,
           onTap: () async {
             await native.requestIgnoreBatteryOptimizations();
@@ -165,8 +166,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           },
         ),
         _PermissionTile(
-          title: 'Notifications',
-          subtitle: 'Required for ringing alerts, chat, and buddy updates.',
+          title: context.tr('Notifications', 'الإشعارات'),
+          subtitle: context.tr('Required for ringing alerts, chat, and buddy updates.', 'مطلوب لتنبيهات الرنين والمحادثة وتحديثات الأصدقاء.'),
           granted: true,
           onTap: () => native.openAppNotificationSettings(),
         ),
@@ -238,7 +239,7 @@ class _PermissionTile extends StatelessWidget {
         subtitle: Text(subtitle),
         trailing: TextButton(
           onPressed: onTap,
-          child: Text(granted ? 'OK' : 'Open Settings'),
+          child: Text(granted ? context.tr('OK', 'موافق') : context.tr('Open Settings', 'فتح الإعدادات')),
         ),
       ),
     );

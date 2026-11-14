@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -65,12 +66,13 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
   }
 
   Future<void> _sendSmsInvite(Contact c) async {
+    final bodyText = context.tr('Join me on U3m Alarm so we can share alarms & reminders!', 'انضم إلي على منبه U3m لنتشارك المنبهات والتذكيرات!');
     final phone = c.phones.first.number;
     final uri = Uri(
       scheme: 'sms',
       path: phone,
       queryParameters: {
-        'body': 'Join me on U3m Alarm so we can share alarms & reminders!',
+        'body': bodyText,
       },
     );
     if (await canLaunchUrl(uri)) {
@@ -82,12 +84,12 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Groups & Contacts'),
+        title: Text(context.tr('Groups & Contacts', 'المجموعات وجهات الاتصال')),
         actions: [
           IconButton(
             onPressed: _loadContacts,
             icon: const Icon(Icons.sync),
-            tooltip: 'Match Phone Contacts',
+            tooltip: context.tr('Match Phone Contacts', 'مطابقة جهات الاتصال'),
           ),
         ],
       ),
@@ -100,14 +102,14 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text(
-                          'Contacts permission is only used to match phone numbers (hashed) with friends and send SMS invites.',
+                        Text(
+                          context.tr('Contacts permission is only used to match phone numbers (hashed) with friends and send SMS invites.', 'يُستخدم إذن جهات الاتصال فقط لمطابقة أرقام الهواتف (مشفرة) مع الأصدقاء وإرسال دعوات SMS.'),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 12),
                         FilledButton(
                           onPressed: _loadContacts,
-                          child: const Text('Grant Contacts Access'),
+                          child: Text(context.tr('Grant Contacts Access', 'السماح بالوصول لجهات الاتصال')),
                         ),
                       ],
                     ),
@@ -121,22 +123,22 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
                         child: FilledButton.icon(
                           onPressed: _loadContacts,
                           icon: const Icon(Icons.contacts),
-                          label: const Text('Find Friends from Contacts'),
+                          label: Text(context.tr('Find Friends from Contacts', 'ابحث عن الأصدقاء من جهات الاتصال')),
                         ),
                       ),
                     if (_matchedUsers.isNotEmpty) ...[
-                      Text('On U3m Alarm',
+                      Text(context.tr('On U3m Alarm', 'على منبه U3m'),
                           style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 8),
                       ..._matchedUsers.map((u) => ListTile(
                             leading: const CircleAvatar(child: Icon(Icons.person)),
                             title: Text(u.displayName),
-                            subtitle: Text('Timezone: ${u.timezoneId}'),
+                            subtitle: Text('${context.tr('Timezone', 'المنطقة الزمنية')}: ${u.timezoneId}'),
                           )),
                       const Divider(height: 24),
                     ],
                     if (_inviteContacts.isNotEmpty) ...[
-                      Text('Invite via SMS',
+                      Text(context.tr('Invite via SMS', 'دعوة عبر SMS'),
                           style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 8),
                       ..._inviteContacts.take(30).map((c) => ListTile(
@@ -145,7 +147,7 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
                             subtitle: Text(c.phones.first.number),
                             trailing: OutlinedButton(
                               onPressed: () => _sendSmsInvite(c),
-                              child: const Text('Invite'),
+                              child: Text(context.tr('Invite', 'دعوة')),
                             ),
                           )),
                     ],

@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -192,7 +193,7 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
     final bottomInset = MediaQuery.of(context).viewPadding.bottom;
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.existing == null ? 'New Alarm' : 'Edit Alarm'),
+        title: Text(widget.existing == null ? context.tr('New Alarm', 'منبه جديد') : context.tr('Edit Alarm', 'تعديل المنبه')),
         actions: [
           if (widget.existing != null)
             IconButton(
@@ -215,28 +216,28 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
             children: [
             TextFormField(
               controller: _titleCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Alarm Title',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: context.tr('Alarm Title', 'عنوان المنبه'),
+                border: const OutlineInputBorder(),
               ),
               validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Title is required' : null,
+                  (v == null || v.trim().isEmpty) ? context.tr('Title is required', 'العنوان مطلوب') : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _notesCtrl,
               maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Notes (optional)',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: context.tr('Notes (optional)', 'ملاحظات (اختياري)'),
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
             SegmentedButton<AlarmType>(
-              segments: const [
-                ButtonSegment(value: AlarmType.personal, label: Text('Personal')),
-                ButtonSegment(value: AlarmType.group, label: Text('Group')),
-                ButtonSegment(value: AlarmType.buddy, label: Text('Buddy')),
+              segments: [
+                ButtonSegment(value: AlarmType.personal, label: Text(context.tr('Personal', 'شخصي'))),
+                ButtonSegment(value: AlarmType.group, label: Text(context.tr('Group', 'جماعي'))),
+                ButtonSegment(value: AlarmType.buddy, label: Text(context.tr('Buddy', 'صديق'))),
               ],
               selected: {_alarmType},
               onSelectionChanged: (s) => setState(() => _alarmType = s.first),
@@ -280,12 +281,12 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
             const SizedBox(height: 16),
             DropdownButtonFormField<RepeatFrequency>(
               value: _repeatFreq,
-              decoration: const InputDecoration(
-                labelText: 'Repeat',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: context.tr('Repeat', 'التكرار'),
+                border: const OutlineInputBorder(),
               ),
               items: RepeatFrequency.values
-                  .map((f) => DropdownMenuItem(value: f, child: Text(f.name)))
+                  .map((f) => DropdownMenuItem(value: f, child: Text(context.trLabel(f.name == 'none' ? 'NONE' : f.name.toUpperCase()))))
                   .toList(),
               onChanged: (v) async {
                 if (v == null) return;
@@ -301,7 +302,7 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
                 child: ListTile(
                   leading: const Icon(Icons.check_box, color: Color(0xFF00C853)),
                   title: Text(
-                    RepeatRule(
+                    context.trLabel(RepeatRule(
                       frequency: RepeatFrequency.custom,
                       interval: _customInterval,
                       customUnit: _customUnit,
@@ -309,12 +310,12 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
                       lastDayOfMonth: _lastDayOfMonth,
                       nthWeekday: _nthWeekday,
                       customPreset: _customPreset,
-                    ).displayLabel,
+                    ).displayLabel),
                     style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                   ),
                   trailing: TextButton(
                     onPressed: _openCustomRepeatScreen,
-                    child: const Text('Change'),
+                    child: Text(context.tr('Change', 'تغيير')),
                   ),
                   onTap: _openCustomRepeatScreen,
                 ),
@@ -326,7 +327,7 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
                 spacing: 6,
                 children: List.generate(7, (i) {
                   final day = i + 1;
-                  const labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+                  final labels = context.isAr ? ['إ', 'ث', 'ر', 'خ', 'ج', 'س', 'ح'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
                   final selected = _weekdays.contains(day);
                   return FilterChip(
                     label: Text(labels[i]),
@@ -345,29 +346,29 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
               ),
             ],
             const Divider(height: 32),
-            Text('Snooze & Ringing', style: Theme.of(context).textTheme.titleMedium),
+            Text(context.tr('Snooze & Ringing', 'الغفوة والرنين'), style: Theme.of(context).textTheme.titleMedium),
             SwitchListTile(
-              title: const Text('Ring even on Vibrate / Silent'),
+              title: Text(context.tr('Ring even on Vibrate / Silent', 'الرنين حتى في وضع الصامت والاهتزاز')),
               value: _ringOnVibrateSilent,
               onChanged: (v) => setState(() => _ringOnVibrateSilent = v),
             ),
             SwitchListTile(
-              title: const Text('Gradual volume increase'),
+              title: Text(context.tr('Gradual volume increase', 'رفع الصوت تدريجياً')),
               value: _gradualVolume,
               onChanged: (v) => setState(() => _gradualVolume = v),
             ),
             SwitchListTile(
-              title: const Text('Vibrate'),
+              title: Text(context.tr('Vibrate', 'اهتزاز')),
               value: _vibrate,
               onChanged: (v) => setState(() => _vibrate = v),
             ),
             SwitchListTile(
-              title: const Text('Auto-snooze after ring duration'),
+              title: Text(context.tr('Auto-snooze after ring duration', 'غفوة تلقائية بعد انتهاء مدة الرنين')),
               value: _autoSnooze,
               onChanged: (v) => setState(() => _autoSnooze = v),
             ),
             ListTile(
-              title: Text('Ring Duration: $_ringDurationSec sec (0 = continuous)'),
+              title: Text(context.tr('Ring Duration: $_ringDurationSec sec (0 = continuous)', 'مدة الرنين: $_ringDurationSec ثانية (0 = مستمر)')),
               subtitle: Slider(
                 value: _ringDurationSec.toDouble(),
                 min: 0,
@@ -377,7 +378,7 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
               ),
             ),
             ListTile(
-              title: Text('Volume: ${(_volume * 100).round()}%'),
+              title: Text('${context.tr('Volume', 'مستوى الصوت')}: ${(_volume * 100).round()}%'),
               subtitle: Slider(
                 value: _volume,
                 min: 0.1,
@@ -393,8 +394,8 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
                     icon: const Icon(Icons.music_note),
                     label: Text(
                       _ringtoneUri == 'default'
-                          ? 'Default Ringtone'
-                          : 'Custom Audio Selected',
+                          ? context.tr('Default Ringtone', 'النغمة الافتراضية')
+                          : context.tr('Custom Audio Selected', 'تم اختيار صوت مخصص'),
                     ),
                   ),
                 ),
@@ -408,9 +409,9 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
             const SizedBox(height: 24),
             FilledButton(
               onPressed: _save,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('Save Alarm'),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(context.tr('Save Alarm', 'حفظ المنبه')),
               ),
             ),
           ],

@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -49,18 +50,18 @@ class _AlarmChatScreenState extends ConsumerState<AlarmChatScreen> {
     final uid = ref.watch(currentUserIdProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.alarm.title} • Chat')),
+      appBar: AppBar(title: Text('${widget.alarm.title} • ${context.tr('Chat', 'محادثة')}')),
       body: Column(
         children: [
           Expanded(
             child: fs == null
-                ? const Center(child: Text('Connect Firebase to enable live chat.'))
+                ? Center(child: Text(context.tr('Connect Firebase to enable live chat.', 'اربط فايربيز لتفعيل المحادثة المباشرة.')))
                 : StreamBuilder<List<ChatMessage>>(
                     stream: fs.watchChatMessages(widget.alarm.id),
                     builder: (context, snap) {
                       final msgs = snap.data ?? const [];
                       if (msgs.isEmpty) {
-                        return const Center(child: Text('No messages yet.'));
+                        return Center(child: Text(context.tr('No messages yet.', 'لا توجد رسائل بعد.')));
                       }
                       return ListView.builder(
                         padding: const EdgeInsets.all(16),
@@ -110,9 +111,9 @@ class _AlarmChatScreenState extends ConsumerState<AlarmChatScreen> {
                   Expanded(
                     child: TextField(
                       controller: _msgCtrl,
-                      decoration: const InputDecoration(
-                        hintText: 'Message participants...',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        hintText: context.tr('Message participants...', 'اكتب رسالة للمشاركين...'),
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                   ),

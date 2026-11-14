@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -17,14 +18,14 @@ class AlarmsTab extends ConsumerWidget {
     final use24h = ref.watch(use24HourFormatProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('U3m Alarm')),
+      appBar: AppBar(title: Text(context.tr('U3m Alarm', 'منبه U3m'))),
       body: alarmsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) => Center(child: Text(': $e')),
         data: (alarms) {
           if (alarms.isEmpty) {
-            return const Center(
-              child: Text('No alarms yet. Tap + to create one.'),
+            return Center(
+              child: Text(context.tr('No alarms yet. Tap + to create one.', 'لا توجد منبهات بعد. اضغط + لإضافة منبه.')),
             );
           }
           return ListView.builder(
@@ -35,8 +36,8 @@ class AlarmsTab extends ConsumerWidget {
               final nextUtc =
                   RecurrenceCalculator.computeNextFireUtc(alarm) ?? alarm.startAtUtc;
               final localTime = nextUtc.toLocal();
-              final fmt = DateFormat(use24h ? 'HH:mm' : 'hh:mm a');
-              final dateFmt = DateFormat('EEE, d MMM');
+              final fmt = context.df(use24h ? 'HH:mm' : 'hh:mm a');
+              final dateFmt = context.df('EEE, d MMM');
               final isMissed = alarm.state == AlarmState.missed;
               final cs = Theme.of(context).colorScheme;
 
@@ -133,7 +134,7 @@ class AlarmsTab extends ConsumerWidget {
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
-                                alarm.type.name.toUpperCase(),
+                                alarm.type == AlarmType.personal ? context.tr('PERSONAL', 'شخصي') : alarm.type == AlarmType.group ? context.tr('GROUP', 'جماعي') : context.tr('BUDDY', 'صديق'),
                                 style: TextStyle(
                                   fontSize: 9.5,
                                   fontWeight: FontWeight.w600,
@@ -150,7 +151,7 @@ class AlarmsTab extends ConsumerWidget {
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
-                                  alarm.repeatRule.displayLabel,
+                                  context.trLabel(alarm.repeatRule.displayLabel),
                                   style: TextStyle(
                                     fontSize: 9.5,
                                     fontWeight: FontWeight.w600,
@@ -161,8 +162,8 @@ class AlarmsTab extends ConsumerWidget {
                             ],
                             if (isMissed) ...[
                               const SizedBox(width: 6),
-                              const Text(
-                                'MISSED',
+                              Text(
+                                context.tr('MISSED', 'فائت'),
                                 style: TextStyle(
                                   color: Colors.red,
                                   fontSize: 10,
@@ -183,7 +184,7 @@ class AlarmsTab extends ConsumerWidget {
                                   children: [
                                     Icon(Icons.history, size: 14, color: cs.primary),
                                     const SizedBox(width: 3),
-                                    Text('History', style: TextStyle(fontSize: 11, color: cs.primary)),
+                                    Text(context.tr('History', 'السجل'), style: TextStyle(fontSize: 11, color: cs.primary)),
                                   ],
                                 ),
                               ),
@@ -201,7 +202,7 @@ class AlarmsTab extends ConsumerWidget {
                                     children: [
                                       Icon(Icons.chat_bubble_outline, size: 14, color: cs.primary),
                                       const SizedBox(width: 3),
-                                      Text('Chat', style: TextStyle(fontSize: 11, color: cs.primary)),
+                                      Text(context.tr('Chat', 'محادثة'), style: TextStyle(fontSize: 11, color: cs.primary)),
                                     ],
                                   ),
                                 ),
@@ -213,7 +214,7 @@ class AlarmsTab extends ConsumerWidget {
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 child: Text(
-                                  'Done',
+                                  context.tr('Done', 'تم'),
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,

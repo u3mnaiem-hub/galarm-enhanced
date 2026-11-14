@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../l10n/tr.dart';
 import '../providers/app_providers.dart';
 
 class SettingsTab extends ConsumerWidget {
@@ -16,18 +17,18 @@ class SettingsTab extends ConsumerWidget {
     final db = ref.watch(appDatabaseProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: Text(context.tr('Settings', 'الإعدادات'))),
       body: ListView(
         children: [
           ListTile(
             leading: const Icon(Icons.brightness_6),
-            title: const Text('Theme'),
+            title: Text(context.tr('Theme', 'المظهر')),
             trailing: DropdownButton<ThemeMode>(
               value: themeMode,
-              items: const [
-                DropdownMenuItem(value: ThemeMode.system, child: Text('System')),
-                DropdownMenuItem(value: ThemeMode.light, child: Text('Light')),
-                DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark')),
+              items: [
+                DropdownMenuItem(value: ThemeMode.system, child: Text(context.tr('System', 'النظام'))),
+                DropdownMenuItem(value: ThemeMode.light, child: Text(context.tr('Light', 'فاتح'))),
+                DropdownMenuItem(value: ThemeMode.dark, child: Text(context.tr('Dark', 'داكن'))),
               ],
               onChanged: (v) {
                 if (v != null) ref.read(themeModeProvider.notifier).state = v;
@@ -36,13 +37,13 @@ class SettingsTab extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.language),
-            title: const Text('Language'),
+            title: Text(context.tr('Language', 'اللغة')),
             trailing: DropdownButton<String>(
               value: locale?.languageCode ?? 'system',
-              items: const [
-                DropdownMenuItem(value: 'system', child: Text('System')),
-                DropdownMenuItem(value: 'en', child: Text('English')),
-                DropdownMenuItem(value: 'ar', child: Text('العربية')),
+              items: [
+                DropdownMenuItem(value: 'system', child: Text(context.tr('System', 'النظام'))),
+                const DropdownMenuItem(value: 'en', child: Text('English')),
+                const DropdownMenuItem(value: 'ar', child: Text('العربية')),
               ],
               onChanged: (v) {
                 if (v == 'system') {
@@ -55,35 +56,37 @@ class SettingsTab extends ConsumerWidget {
           ),
           SwitchListTile(
             secondary: const Icon(Icons.schedule),
-            title: const Text('24-Hour Time Format'),
+            title: Text(context.tr('24-Hour Time Format', 'نظام 24 ساعة')),
             value: use24h,
             onChanged: (v) => ref.read(use24HourFormatProvider.notifier).state = v,
           ),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.battery_saver),
-            title: const Text('Battery & OEM Autostart Help'),
-            subtitle: const Text('Xiaomi, Oppo, Samsung & Huawei reliability guide'),
+            title: Text(context.tr('Battery & OEM Autostart Help', 'مساعدة البطارية والتشغيل التلقائي')),
+            subtitle: Text(context.tr('Xiaomi, Oppo, Samsung & Huawei reliability guide', 'دليل الاعتمادية لأجهزة شاومي وأوبو وسامسونج وهواوي')),
             onTap: () => showDialog(
               context: context,
               builder: (_) => AlertDialog(
-                title: const Text('OEM Battery & Autostart Guide'),
-                content: const SingleChildScrollView(
+                title: Text(context.tr('OEM Battery & Autostart Guide', 'دليل البطارية والتشغيل التلقائي')),
+                content: SingleChildScrollView(
                   child: Text(
-                    '• Xiaomi (MIUI/HyperOS): Enable Autostart + set Battery Saver to "No restrictions".\n'
-                    '• Samsung: Add U3m Alarm to "Never sleeping apps" in Device Care.\n'
-                    '• Oppo/Realme: Allow Background Activity & Auto-launch in App Info.\n'
-                    '• Huawei: Disable "Manage automatically" in App Launch and enable Auto-launch + Run in background.',
+                    context.isAr
+                        ? '• شاومي (MIUI/HyperOS): فعّل التشغيل التلقائي واضبط توفير البطارية على "بدون قيود".\n• سامسونج: أضف منبه U3m إلى "التطبيقات التي لا تنام أبداً" في العناية بالجهاز.\n• أوبو/ريلمي: اسمح بالنشاط في الخلفية والتشغيل التلقائي من معلومات التطبيق.\n• هواوي: عطّل "الإدارة التلقائية" في تشغيل التطبيقات وفعّل التشغيل التلقائي والعمل في الخلفية.'
+                        : '• Xiaomi (MIUI/HyperOS): Enable Autostart + set Battery Saver to "No restrictions".\n'
+                            '• Samsung: Add U3m Alarm to "Never sleeping apps" in Device Care.\n'
+                            '• Oppo/Realme: Allow Background Activity & Auto-launch in App Info.\n'
+                            '• Huawei: Disable "Manage automatically" in App Launch and enable Auto-launch + Run in background.',
                   ),
                 ),
                 actions: [
                   TextButton(
                     onPressed: () => native.requestIgnoreBatteryOptimizations(),
-                    child: const Text('Disable Battery Optimization'),
+                    child: Text(context.tr('Disable Battery Optimization', 'تعطيل تحسين البطارية')),
                   ),
                   TextButton(
                     onPressed: () => Navigator.pop(context),
-                    child: const Text('Close'),
+                    child: Text(context.tr('Close', 'إغلاق')),
                   ),
                 ],
               ),
@@ -91,18 +94,18 @@ class SettingsTab extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.block),
-            title: const Text('Blocked Users'),
+            title: Text(context.tr('Blocked Users', 'المستخدمون المحظورون')),
             subtitle: Text(
-              '${blockedAsync.valueOrNull?.length ?? 0} blocked',
+              '${blockedAsync.valueOrNull?.length ?? 0} ${context.tr('blocked', 'محظور')}',
             ),
             onTap: () {
               final list = blockedAsync.valueOrNull ?? const [];
               showDialog(
                 context: context,
                 builder: (_) => AlertDialog(
-                  title: const Text('Blocked Users'),
+                  title: Text(context.tr('Blocked Users', 'المستخدمون المحظورون')),
                   content: list.isEmpty
-                      ? const Text('No blocked users.')
+                      ? Text(context.tr('No blocked users.', 'لا يوجد مستخدمون محظورون.'))
                       : SizedBox(
                           width: double.maxFinite,
                           child: ListView(
@@ -112,7 +115,7 @@ class SettingsTab extends ConsumerWidget {
                                       title: Text(u.displayName),
                                       trailing: TextButton(
                                         onPressed: () => db.unblockUser(u.uid),
-                                        child: const Text('Unblock'),
+                                        child: Text(context.tr('Unblock', 'إلغاء الحظر')),
                                       ),
                                     ))
                                 .toList(),
@@ -121,7 +124,7 @@ class SettingsTab extends ConsumerWidget {
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('Close'),
+                      child: Text(context.tr('Close', 'إغلاق')),
                     ),
                   ],
                 ),
@@ -131,33 +134,33 @@ class SettingsTab extends ConsumerWidget {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.info_outline),
-            title: const Text('About / عن البرنامج'),
-            subtitle: const Text('Developer: yousry mahmoud naiem | يسري محمود نعيم'),
+            title: Text(context.tr('About', 'عن البرنامج')),
+            subtitle: Text(context.tr('Developer: yousry mahmoud naiem', 'المطور: يسري محمود نعيم')),
             onTap: () => showDialog(
               context: context,
               builder: (_) => AlertDialog(
-                title: const Text('About U3m Alarm'),
-                content: const Column(
+                title: Text(context.tr('About U3m Alarm', 'عن منبه U3m')),
+                content: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'U3m Alarm',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      context.tr('U3m Alarm', 'منبه U3m'),
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
-                    SizedBox(height: 8),
-                    Text('Smart Personal & Social Alarm Application'),
-                    SizedBox(height: 12),
+                    const SizedBox(height: 8),
+                    Text(context.tr('Smart Personal & Social Alarm Application', 'تطبيق منبه ذكي شخصي واجتماعي')),
+                    const SizedBox(height: 12),
                     Text(
-                      'Developer: yousry mahmoud naiem\nالمطور: يسري محمود نعيم',
-                      style: TextStyle(fontWeight: FontWeight.w600),
+                      context.tr('Developer: yousry mahmoud naiem', 'المطور: يسري محمود نعيم'),
+                      style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ],
                 ),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(context),
-                    child: const Text('Close'),
+                    child: Text(context.tr('Close', 'إغلاق')),
                   ),
                 ],
               ),
@@ -166,7 +169,7 @@ class SettingsTab extends ConsumerWidget {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.logout),
-            title: const Text('Sign Out'),
+            title: Text(context.tr('Sign Out', 'تسجيل الخروج')),
             onTap: () async {
               try {
                 await FirebaseAuth.instance.signOut();
@@ -175,9 +178,9 @@ class SettingsTab extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.delete_forever, color: Colors.red),
-            title: const Text(
-              'Delete Account & Data',
-              style: TextStyle(color: Colors.red),
+            title: Text(
+              context.tr('Delete Account & Data', 'حذف الحساب والبيانات'),
+              style: const TextStyle(color: Colors.red),
             ),
             onTap: () async {
               try {

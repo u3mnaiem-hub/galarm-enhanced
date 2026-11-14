@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import '../../domain/entities/alarm.dart';
 
@@ -111,7 +112,7 @@ class _CustomRepeatScreenState extends State<CustomRepeatScreen> {
     final bottomInset = MediaQuery.of(context).viewPadding.bottom;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Custom Repeat Options'),
+        title: Text(context.tr('Custom Repeat Options', 'خيارات التكرار المخصص')),
       ),
       body: SafeArea(
         top: false,
@@ -140,7 +141,7 @@ class _CustomRepeatScreenState extends State<CustomRepeatScreen> {
                     ),
                   ),
                   title: Text(
-                    preset.title,
+                    context.trLabel(preset.title),
                     style: TextStyle(
                       fontSize: 13.5,
                       fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
@@ -153,7 +154,7 @@ class _CustomRepeatScreenState extends State<CustomRepeatScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
               child: Text(
-                'Or set a custom interval:',
+                context.tr('Or set a custom interval:', 'أو حدد فترة مخصصة:'),
                 style: Theme.of(context).textTheme.titleSmall,
               ),
             ),
@@ -164,7 +165,7 @@ class _CustomRepeatScreenState extends State<CustomRepeatScreen> {
                   children: [
                     Row(
                       children: [
-                        const Text('Repeat every:'),
+                        Text(context.tr('Repeat every:', 'كرر كل:')),
                         const SizedBox(width: 12),
                         DropdownButton<int>(
                           value: _customInterval.clamp(1, 30),
@@ -188,7 +189,7 @@ class _CustomRepeatScreenState extends State<CustomRepeatScreen> {
                                 .map(
                                   (u) => DropdownMenuItem(
                                     value: u,
-                                    child: Text(u.name),
+                                    child: Text(context.trUnit(u.name)),
                                   ),
                                 )
                                 .toList(),
@@ -213,7 +214,7 @@ class _CustomRepeatScreenState extends State<CustomRepeatScreen> {
                             ),
                           );
                         },
-                        child: Text('Apply Every $_customInterval ${_customUnit.name}'),
+                        child: Text(context.tr('Apply Every $_customInterval ${_customUnit.name}', 'تطبيق كل $_customInterval ${context.trUnit(_customUnit.name)}')),
                       ),
                     ),
                   ],
