@@ -32,6 +32,7 @@ jobs:
           cp -r /tmp/custom_backup/lib .
           cp -r /tmp/custom_backup/test .
           rm -rf android/app/src/main/kotlin/com/galarmenhanced/galarm_enhanced
+          rm -rf android/app/src/main/res/mipmap-anydpi*
           cp -r /tmp/custom_backup/android/app/src/main/* android/app/src/main/
           if [ -f android/app/build.gradle ]; then
             sed -i 's/namespace = .*/namespace = "com.galarmenhanced.app"/g' android/app/build.gradle
