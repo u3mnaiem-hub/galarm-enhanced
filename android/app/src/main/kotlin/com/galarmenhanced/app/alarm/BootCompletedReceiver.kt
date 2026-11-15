@@ -24,6 +24,8 @@ class BootCompletedReceiver : BroadcastReceiver() {
                     val triggerAt = payload.optLong("triggerAtMillis", 0L)
                     if (triggerAt > now) {
                         MainActivity.scheduleWithAlarmManager(context, payload)
+                    } else {
+                        AlarmRepeatHelper.scheduleNextRepeatIfNeeded(context, payload)
                     }
                 } catch (_: Exception) {
                     // Skip malformed entry

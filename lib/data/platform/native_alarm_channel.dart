@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/services.dart';
 
 class NativeAlarmChannel {
@@ -18,6 +19,10 @@ class NativeAlarmChannel {
     required int snoozeDurationMinutes,
     required int maxSnoozeCount,
     required int currentSnoozeCount,
+    required String repeatRuleJson,
+    required String creatorTimezoneId,
+    required int startAtMillis,
+    required int occurrenceCount,
   }) async {
     final result = await _channel.invokeMethod<bool>('scheduleExactAlarm', {
       'requestCode': alarmRequestCode,
@@ -34,8 +39,26 @@ class NativeAlarmChannel {
       'snoozeDurationMinutes': snoozeDurationMinutes,
       'maxSnoozeCount': maxSnoozeCount,
       'currentSnoozeCount': currentSnoozeCount,
+      'repeatRuleJson': repeatRuleJson,
+      'creatorTimezoneId': creatorTimezoneId,
+      'startAtMillis': startAtMillis,
+      'occurrenceCount': occurrenceCount,
     });
     return result ?? false;
+  }
+
+  Future<List<Map<String, dynamic>>> consumeHistoryEvents() async {
+    try {
+      final raw = await _channel.invokeMethod<String>('consumeHistoryEvents');
+      if (raw == null || raw.isEmpty) return const [];
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded.whereType<Map<String, dynamic>>().toList();
+      }
+      return const [];
+    } catch (_) {
+      return const [];
+    }
   }
 
   Future<void> cancelAlarm(int alarmRequestCode, String alarmId) async {

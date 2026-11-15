@@ -171,7 +171,10 @@ class AlarmsTab extends ConsumerWidget {
                           ],
                         ),
                         const SizedBox(height: 6),
-                        Row(
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             Container(
                               padding: const EdgeInsets.symmetric(
@@ -191,35 +194,28 @@ class AlarmsTab extends ConsumerWidget {
                                 ),
                               ),
                             ),
-                            if (alarm.repeatRule.isRecurring) ...[
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
+                            if (alarm.repeatRule.isRecurring)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: cs.tertiaryContainer.withOpacity(0.6),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  context.trLabel(
+                                    alarm.repeatRule.displayLabel,
                                   ),
-                                  decoration: BoxDecoration(
-                                    color: cs.tertiaryContainer.withOpacity(0.6),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    context.trLabel(
-                                      alarm.repeatRule.displayLabel,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 9.5,
-                                      fontWeight: FontWeight.w600,
-                                      color: cs.onTertiaryContainer,
-                                    ),
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: cs.onTertiaryContainer,
                                   ),
                                 ),
                               ),
-                            ],
-                            if (isMissed) ...[
-                              const SizedBox(width: 6),
+                            if (isMissed)
                               Text(
                                 context.tr('MISSED', 'فائت'),
                                 style: const TextStyle(
@@ -228,10 +224,17 @@ class AlarmsTab extends ConsumerWidget {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                            ],
-                            const Spacer(),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
                             InkWell(
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(8),
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute(
                                   builder: (_) =>
@@ -240,21 +243,22 @@ class AlarmsTab extends ConsumerWidget {
                               ),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
+                                  horizontal: 8,
+                                  vertical: 4,
                                 ),
                                 child: Row(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
                                       Icons.edit_outlined,
-                                      size: 14,
+                                      size: 15,
                                       color: cs.primary,
                                     ),
-                                    const SizedBox(width: 3),
+                                    const SizedBox(width: 4),
                                     Text(
                                       context.tr('Edit', 'تعديل'),
                                       style: TextStyle(
-                                        fontSize: 11,
+                                        fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                         color: cs.primary,
                                       ),
@@ -264,25 +268,26 @@ class AlarmsTab extends ConsumerWidget {
                               ),
                             ),
                             InkWell(
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(8),
                               onTap: () => _confirmDelete(context, ref, alarm),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
+                                  horizontal: 8,
+                                  vertical: 4,
                                 ),
                                 child: Row(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
                                     const Icon(
                                       Icons.delete_outline,
-                                      size: 14,
+                                      size: 15,
                                       color: Colors.red,
                                     ),
-                                    const SizedBox(width: 3),
+                                    const SizedBox(width: 4),
                                     Text(
                                       context.tr('Delete', 'حذف'),
                                       style: const TextStyle(
-                                        fontSize: 11,
+                                        fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                         color: Colors.red,
                                       ),
@@ -292,7 +297,7 @@ class AlarmsTab extends ConsumerWidget {
                               ),
                             ),
                             InkWell(
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(8),
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute(
                                   builder: (_) =>
@@ -301,21 +306,23 @@ class AlarmsTab extends ConsumerWidget {
                               ),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
+                                  horizontal: 8,
+                                  vertical: 4,
                                 ),
                                 child: Row(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
                                       Icons.history,
-                                      size: 14,
+                                      size: 15,
                                       color: cs.primary,
                                     ),
-                                    const SizedBox(width: 3),
+                                    const SizedBox(width: 4),
                                     Text(
                                       context.tr('History', 'السجل'),
                                       style: TextStyle(
-                                        fontSize: 11,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
                                         color: cs.primary,
                                       ),
                                     ),
@@ -324,22 +331,33 @@ class AlarmsTab extends ConsumerWidget {
                               ),
                             ),
                             InkWell(
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(8),
                               onTap: () => ref
                                   .read(alarmRepositoryProvider)
                                   .markOccurrenceDone(alarm),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
+                                  horizontal: 8,
+                                  vertical: 4,
                                 ),
-                                child: Text(
-                                  context.tr('Done', 'تم'),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: cs.primary,
-                                  ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.check_circle_outline,
+                                      size: 15,
+                                      color: cs.primary,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      context.tr('Done', 'تم'),
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: cs.primary,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),

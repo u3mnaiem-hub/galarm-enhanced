@@ -20,6 +20,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.galarmenhanced.app.alarm.AlarmReceiver
+import com.galarmenhanced.app.alarm.AlarmRepeatHelper
 import com.galarmenhanced.app.alarm.AlarmRingingService
 import com.galarmenhanced.app.voice.VoiceAssistantChannel
 import io.flutter.embedding.android.FlutterActivity
@@ -105,6 +106,9 @@ class MainActivity : FlutterActivity() {
                     "stopRinging" -> {
                         stopService(Intent(this, AlarmRingingService::class.java))
                         result.success(true)
+                    }
+                    "consumeHistoryEvents" -> {
+                        result.success(AlarmRepeatHelper.consumeHistoryEvents(this))
                     }
                     "canScheduleExactAlarms" -> {
                         val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -296,6 +300,10 @@ class MainActivity : FlutterActivity() {
         val snoozeDurationMinutes = (args["snoozeDurationMinutes"] as? Number)?.toInt() ?: 5
         val maxSnoozeCount = (args["maxSnoozeCount"] as? Number)?.toInt() ?: 3
         val currentSnoozeCount = (args["currentSnoozeCount"] as? Number)?.toInt() ?: 0
+        val repeatRuleJson = args["repeatRuleJson"] as? String ?: ""
+        val creatorTimezoneId = args["creatorTimezoneId"] as? String ?: "UTC"
+        val startAtMillis = (args["startAtMillis"] as? Number)?.toLong() ?: triggerAtMillis
+        val occurrenceCount = (args["occurrenceCount"] as? Number)?.toInt() ?: 0
 
         // Persist alarm metadata so BootCompletedReceiver can reschedule after reboot/timezone change
         val prefs = getSharedPreferences("galarm_native_store", Context.MODE_PRIVATE)
@@ -314,6 +322,10 @@ class MainActivity : FlutterActivity() {
             put("snoozeDurationMinutes", snoozeDurationMinutes)
             put("maxSnoozeCount", maxSnoozeCount)
             put("currentSnoozeCount", currentSnoozeCount)
+            put("repeatRuleJson", repeatRuleJson)
+            put("creatorTimezoneId", creatorTimezoneId)
+            put("startAtMillis", startAtMillis)
+            put("occurrenceCount", occurrenceCount)
         }
         prefs.edit().putString("alarm_$alarmId", payload.toString()).apply()
 

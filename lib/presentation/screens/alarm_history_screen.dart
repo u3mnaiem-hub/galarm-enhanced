@@ -1,23 +1,40 @@
 import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import '../../data/local/app_database.dart';
 import '../../domain/entities/alarm.dart';
 import '../providers/app_providers.dart';
 
-class AlarmHistoryScreen extends ConsumerWidget {
+class AlarmHistoryScreen extends ConsumerStatefulWidget {
   final Alarm alarm;
   const AlarmHistoryScreen({super.key, required this.alarm});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final db = ref.watch(appDatabaseProvider);
+  ConsumerState<AlarmHistoryScreen> createState() => _AlarmHistoryScreenState();
+}
+
+class _AlarmHistoryScreenState extends ConsumerState<AlarmHistoryScreen> {
+  late Future<List<AlarmOccurrencesTableData>> _historyFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _historyFuture = _loadHistory();
+  }
+
+  Future<List<AlarmOccurrencesTableData>> _loadHistory() async {
+    await ref.read(alarmRepositoryProvider).syncNativeEvents();
+    return ref.read(appDatabaseProvider).getOccurrencesForAlarm(widget.alarm.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final alarm = widget.alarm;
 
     return Scaffold(
       appBar: AppBar(title: Text('${alarm.title} • ${context.tr('History', 'السجل')}')),
       body: FutureBuilder<List<AlarmOccurrencesTableData>>(
-        future: db.getOccurrencesForAlarm(alarm.id),
+        future: _historyFuture,
         builder: (context, snap) {
           if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
@@ -41,7 +58,17 @@ class AlarmHistoryScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 12),
               if (items.isEmpty)
-                Center(child: Text(context.tr('No occurrence history recorded yet.', 'لا يوجد سجل تنبيهات بعد.'))),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                    child: Text(
+                      context.tr(
+                        'No occurrence history recorded yet.',
+                        'لا يوجد سجل تنبيهات بعد.',
+                      ),
+                    ),
+                  ),
+                ),
               ...items.map((occ) {
                 final isMissed = occ.state == 'missed';
                 return ListTile(
@@ -54,7 +81,10 @@ class AlarmHistoryScreen extends ConsumerWidget {
                         .format(occ.scheduledAtUtc.toLocal()),
                   ),
                   subtitle: Text(
-                    context.tr('Status: ${occ.state.toUpperCase()} • Snoozes: ${occ.snoozeCount}', 'الحالة: ${occ.state == 'missed' ? 'فائت' : 'تم'} • الغفوات: ${occ.snoozeCount}'),
+                    context.tr(
+                      'Status: ${occ.state.toUpperCase()} • Snoozes: ${occ.snoozeCount}',
+                      'الحالة: ${occ.state == 'missed' ? 'فائت' : 'تم'} • الغفوات: ${occ.snoozeCount}',
+                    ),
                   ),
                 );
               }),

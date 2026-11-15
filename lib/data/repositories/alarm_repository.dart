@@ -122,12 +122,17 @@ class AlarmRepository {
       ),
     );
 
-    final nextState = alarm.repeatRule.isRecurring
+    final nextFire = RecurrenceCalculator.computeNextFireUtc(
+      alarm.copyWith(clearSnooze: true),
+      referenceUtc: nowUtc,
+    );
+    final keepRecurring = alarm.repeatRule.isRecurring && nextFire != null;
+    final nextState = keepRecurring
         ? AlarmState.upcoming
         : AlarmState.done;
     final nextAlarm = alarm.copyWith(
       state: nextState,
-      isEnabled: alarm.repeatRule.isRecurring,
+      isEnabled: keepRecurring,
       occurrenceCount: alarm.occurrenceCount + 1,
       currentSnoozeCount: 0,
       clearSnooze: true,
@@ -189,6 +194,70 @@ class AlarmRepository {
     await _native.stopRinging();
   }
 
+  Future<void> syncNativeEvents() async {
+    final events = await _native.consumeHistoryEvents();
+    if (events.isEmpty) return;
+
+    final rows = await _db.getActiveAlarms();
+    final alarmMap = <String, Alarm>{};
+    for (final r in rows) {
+      final participantsRows = await _db.getParticipantsForAlarm(r.id);
+      alarmMap[r.id] = _mapRowToAlarm(r, participantsRows);
+    }
+
+    final nowUtc = DateTime.now().toUtc();
+    for (final ev in events) {
+      final alarmId = ev['alarmId'] as String?;
+      if (alarmId == null || alarmId.isEmpty) continue;
+
+      final scheduledMillis = (ev['scheduledAtMillis'] as num?)?.toInt() ??
+          nowUtc.millisecondsSinceEpoch;
+      final ackMillis = (ev['acknowledgedAtMillis'] as num?)?.toInt();
+      final stateStr = (ev['state'] as String?) ?? 'done';
+      final snoozeCount = (ev['snoozeCount'] as num?)?.toInt() ?? 0;
+      final occIndex = (ev['occurrenceIndex'] as num?)?.toInt() ?? 1;
+
+      await _db.insertOccurrence(
+        AlarmOccurrencesTableCompanion.insert(
+          alarmId: alarmId,
+          occurrenceIndex: occIndex,
+          scheduledAtUtc: DateTime.fromMillisecondsSinceEpoch(
+            scheduledMillis,
+            isUtc: true,
+          ),
+          state: stateStr,
+          snoozeCount: Value(snoozeCount),
+          acknowledgedAtUtc: Value(
+            ackMillis != null
+                ? DateTime.fromMillisecondsSinceEpoch(ackMillis, isUtc: true)
+                : null,
+          ),
+        ),
+      );
+
+      final existing = alarmMap[alarmId];
+      if (existing != null) {
+        final nextFire = RecurrenceCalculator.computeNextFireUtc(
+          existing.copyWith(clearSnooze: true),
+          referenceUtc: nowUtc,
+        );
+        final keepRecurring = existing.repeatRule.isRecurring && nextFire != null;
+        final updatedAlarm = existing.copyWith(
+          state: keepRecurring
+              ? AlarmState.upcoming
+              : (stateStr == 'missed' ? AlarmState.missed : AlarmState.done),
+          isEnabled: keepRecurring,
+          occurrenceCount: existing.occurrenceCount + 1,
+          currentSnoozeCount: 0,
+          clearSnooze: true,
+          updatedAtUtc: nowUtc,
+        );
+        alarmMap[alarmId] = updatedAlarm;
+        await saveAlarm(updatedAlarm);
+      }
+    }
+  }
+
   Future<void> rescheduleAllAlarms() async {
     final rows = await _db.getActiveAlarms();
     for (final r in rows) {
@@ -244,6 +313,10 @@ class AlarmRepository {
       snoozeDurationMinutes: alarm.snoozeConfig.snoozeDurationMinutes,
       maxSnoozeCount: alarm.snoozeConfig.maxSnoozeCount,
       currentSnoozeCount: alarm.currentSnoozeCount,
+      repeatRuleJson: alarm.repeatRule.toJsonString(),
+      creatorTimezoneId: alarm.creatorTimezoneId,
+      startAtMillis: alarm.startAtUtc.millisecondsSinceEpoch,
+      occurrenceCount: alarm.occurrenceCount,
     );
   }
 

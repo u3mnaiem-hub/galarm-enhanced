@@ -152,7 +152,11 @@ class AlarmActivity : Activity() {
             setPadding(32, 32, 32, 32)
             layoutParams = lp
             setOnClickListener {
-                stopService(Intent(this@AlarmActivity, AlarmRingingService::class.java))
+                val doneIntent = Intent(this@AlarmActivity, AlarmRingingService::class.java).apply {
+                    action = AlarmRingingService.ACTION_DONE
+                    putExtra("payload", payloadRaw)
+                }
+                startService(doneIntent)
                 finish()
             }
         }
@@ -169,11 +173,11 @@ class AlarmActivity : Activity() {
             setPadding(32, 32, 32, 32)
             layoutParams = lp
             setOnClickListener {
-                val nextTrigger = System.currentTimeMillis() + (snoozeMinutes * 60_000L)
-                payload.put("triggerAtMillis", nextTrigger)
-                payload.put("currentSnoozeCount", currentSnoozeCount + 1)
-                MainActivity.scheduleWithAlarmManager(this@AlarmActivity, payload)
-                stopService(Intent(this@AlarmActivity, AlarmRingingService::class.java))
+                val snoozeIntent = Intent(this@AlarmActivity, AlarmRingingService::class.java).apply {
+                    action = AlarmRingingService.ACTION_SNOOZE
+                    putExtra("payload", payloadRaw)
+                }
+                startService(snoozeIntent)
                 finish()
             }
         }

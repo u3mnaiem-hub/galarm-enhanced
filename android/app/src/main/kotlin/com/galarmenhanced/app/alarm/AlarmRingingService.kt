@@ -32,6 +32,19 @@ class AlarmRingingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         if (action == ACTION_DISMISS || action == ACTION_DONE) {
+            val raw = intent.getStringExtra("payload") ?: currentPayloadRaw
+            if (raw != null) {
+                try {
+                    val p = JSONObject(raw)
+                    AlarmRepeatHelper.recordHistoryEvent(
+                        this,
+                        p,
+                        "done",
+                        System.currentTimeMillis()
+                    )
+                    AlarmRepeatHelper.scheduleNextRepeatIfNeeded(this, p)
+                } catch (_: Exception) {}
+            }
             sendBroadcast(Intent(ACTION_CLOSE_ACTIVITY).setPackage(packageName))
             stopSelf()
             return START_NOT_STICKY
@@ -41,11 +54,25 @@ class AlarmRingingService : Service() {
             if (raw != null) {
                 try {
                     val p = JSONObject(raw)
-                    val snoozeMin = p.optInt("snoozeDurationMinutes", 5)
-                    val nextTrigger = System.currentTimeMillis() + (snoozeMin * 60_000L)
-                    p.put("triggerAtMillis", nextTrigger)
-                    p.put("currentSnoozeCount", p.optInt("currentSnoozeCount", 0) + 1)
-                    MainActivity.scheduleWithAlarmManager(this, p)
+                    val nextSnoozeCount = p.optInt("currentSnoozeCount", 0) + 1
+                    val maxSnoozeCount = p.optInt("maxSnoozeCount", 3)
+                    if (nextSnoozeCount > maxSnoozeCount) {
+                        AlarmRepeatHelper.recordHistoryEvent(this, p, "missed", null)
+                        AlarmRepeatHelper.scheduleNextRepeatIfNeeded(this, p)
+                    } else {
+                        val snoozeMin = p.optInt("snoozeDurationMinutes", 5)
+                        val nextTrigger = System.currentTimeMillis() + (snoozeMin * 60_000L)
+                        p.put("triggerAtMillis", nextTrigger)
+                        p.put("currentSnoozeCount", nextSnoozeCount)
+                        val alarmId = p.optString("alarmId", "")
+                        if (alarmId.isNotBlank()) {
+                            getSharedPreferences("galarm_native_store", Context.MODE_PRIVATE)
+                                .edit()
+                                .putString("alarm_$alarmId", p.toString())
+                                .apply()
+                        }
+                        MainActivity.scheduleWithAlarmManager(this, p)
+                    }
                 } catch (_: Exception) {}
             }
             sendBroadcast(Intent(ACTION_CLOSE_ACTIVITY).setPackage(packageName))
@@ -91,10 +118,24 @@ class AlarmRingingService : Service() {
         // Optional ring duration auto-snooze
         if (ringDurationSeconds > 0) {
             handler.postDelayed({
-                val snoozedNext = System.currentTimeMillis() + (snoozeDurationMinutes * 60_000L)
-                payload.put("triggerAtMillis", snoozedNext)
-                payload.put("currentSnoozeCount", payload.optInt("currentSnoozeCount", 0) + 1)
-                MainActivity.scheduleWithAlarmManager(this, payload)
+                val nextSnoozeCount = payload.optInt("currentSnoozeCount", 0) + 1
+                val maxSnoozeCount = payload.optInt("maxSnoozeCount", 3)
+                if (nextSnoozeCount > maxSnoozeCount) {
+                    AlarmRepeatHelper.recordHistoryEvent(this, payload, "missed", null)
+                    AlarmRepeatHelper.scheduleNextRepeatIfNeeded(this, payload)
+                } else {
+                    val snoozedNext = System.currentTimeMillis() + (snoozeDurationMinutes * 60_000L)
+                    payload.put("triggerAtMillis", snoozedNext)
+                    payload.put("currentSnoozeCount", nextSnoozeCount)
+                    val alarmId = payload.optString("alarmId", "")
+                    if (alarmId.isNotBlank()) {
+                        getSharedPreferences("galarm_native_store", Context.MODE_PRIVATE)
+                            .edit()
+                            .putString("alarm_$alarmId", payload.toString())
+                            .apply()
+                    }
+                    MainActivity.scheduleWithAlarmManager(this, payload)
+                }
                 sendBroadcast(Intent(ACTION_CLOSE_ACTIVITY).setPackage(packageName))
                 stopSelf()
             }, ringDurationSeconds * 1000L)

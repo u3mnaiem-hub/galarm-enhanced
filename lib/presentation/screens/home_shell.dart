@@ -1,20 +1,48 @@
 import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/app_providers.dart';
 import 'alarms_tab.dart';
 import 'notifications_tab.dart';
 import 'settings_tab.dart';
 import 'alarm_editor_screen.dart';
 import '../widgets/voice_assistant_sheet.dart';
 
-class HomeShell extends StatefulWidget {
+class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({super.key});
 
   @override
-  State<HomeShell> createState() => _HomeShellState();
+  ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    Future.microtask(_syncAlarmsWithNative);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _syncAlarmsWithNative();
+    }
+  }
+
+  Future<void> _syncAlarmsWithNative() async {
+    final repo = ref.read(alarmRepositoryProvider);
+    await repo.syncNativeEvents();
+    await repo.rescheduleAllAlarms();
+  }
 
   static const _pages = [
     AlarmsTab(),
