@@ -44,9 +44,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final pages = [
       _IntroSlide(
         icon: Icons.alarm_on_rounded,
-        title: context.tr('Social Alarms & Reminders', 'منبهات وتذكيرات اجتماعية'),
+        title: context.tr('Smart Personal Alarms', 'منبهات وتذكيرات شخصية ذكية'),
         subtitle:
-            context.tr('Set personal alarms, coordinate group events across timezones, or send buddy reminders.', 'اضبط منبهات شخصية، ونسّق فعاليات جماعية عبر المناطق الزمنية، أو أرسل تذكيرات لأصدقائك.'),
+            context.tr('Set personal alarms with custom repeat rules, voice assistant, and custom ringtones — 100% offline.', 'اضبط منبهاتك الشخصية مع تكرار مخصص ومساعد صوتي ونغمات مخصصة بدون إنترنت.'),
       ),
       _IntroSlide(
         icon: Icons.volume_up_rounded,
@@ -55,10 +55,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             context.tr('Full-screen lock-screen ringing over the ALARM audio stream with smart auto-snooze.', 'رنين بملء الشاشة فوق شاشة القفل عبر قناة صوت المنبه مع غفوة تلقائية ذكية.'),
       ),
       _IntroSlide(
-        icon: Icons.chat_bubble_outline_rounded,
-        title: context.tr('Live Chat & History', 'محادثة مباشرة وسجل'),
+        icon: Icons.settings_backup_restore_rounded,
+        title: context.tr('Backup, Share & History', 'نسخ احتياطي ومشاركة وسجل'),
         subtitle:
-            context.tr('Confirm or decline group alarms, chat per alarm, and track recurring alarm history.', 'أكّد أو ارفض المنبهات الجماعية، وتحادث لكل منبه، وتابع سجل المنبهات المتكررة.'),
+            context.tr('Back up all your alarms to your phone, share them anywhere, and track alarm history.', 'احفظ نسخة احتياطية من كل منبهاتك على هاتفك أو شاركها، وتابع سجل المنبهات.'),
       ),
       _buildPermissionsWalkthrough(context),
     ];

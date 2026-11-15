@@ -22,18 +22,14 @@ final nativeVoiceChannelProvider = Provider<NativeVoiceChannel>((ref) {
 });
 
 final firestoreServiceProvider = Provider<FirestoreService?>((ref) {
-  try {
-    return FirestoreService();
-  } catch (_) {
-    return null;
-  }
+  return null;
 });
 
 final alarmRepositoryProvider = Provider<AlarmRepository>((ref) {
   return AlarmRepository(
     ref.watch(appDatabaseProvider),
     ref.watch(nativeAlarmChannelProvider),
-    ref.watch(firestoreServiceProvider),
+    null,
   );
 });
 
@@ -52,5 +48,7 @@ final blockedUsersStreamProvider = StreamProvider((ref) {
 final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.system);
 final localeProvider = StateProvider<Locale?>((ref) => null);
 final use24HourFormatProvider = StateProvider<bool>((ref) => false);
+final defaultRingtoneUriProvider = StateProvider<String>((ref) => 'default');
+final defaultRingtoneNameProvider = StateProvider<String>((ref) => '');
 final currentUserIdProvider = StateProvider<String>((ref) => 'local_user');
 final currentUserNameProvider = StateProvider<String>((ref) => 'Me');

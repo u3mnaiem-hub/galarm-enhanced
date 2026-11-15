@@ -1,9 +1,12 @@
+import 'dart:io';
 import '../../l10n/tr.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../domain/entities/alarm.dart';
 import '../providers/app_providers.dart';
@@ -24,7 +27,6 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
 
   late DateTime _selectedDate;
   late TimeOfDay _selectedTime;
-  late AlarmType _alarmType;
   late RepeatFrequency _repeatFreq;
   late int _customInterval;
   late CustomRepeatUnit _customUnit;
@@ -51,13 +53,16 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
   void initState() {
     super.initState();
     final e = widget.existing;
-    final initialLocal = (e?.startAtUtc ?? DateTime.now().add(const Duration(minutes: 5))).toLocal();
+    final initialLocal =
+        (e?.startAtUtc ?? DateTime.now().add(const Duration(minutes: 5)))
+            .toLocal();
 
     _titleCtrl = TextEditingController(text: e?.title ?? '');
     _notesCtrl = TextEditingController(text: e?.notes ?? '');
-    _selectedDate = DateTime(initialLocal.year, initialLocal.month, initialLocal.day);
-    _selectedTime = TimeOfDay(hour: initialLocal.hour, minute: initialLocal.minute);
-    _alarmType = e?.type ?? AlarmType.personal;
+    _selectedDate =
+        DateTime(initialLocal.year, initialLocal.month, initialLocal.day);
+    _selectedTime =
+        TimeOfDay(hour: initialLocal.hour, minute: initialLocal.minute);
     _repeatFreq = e?.repeatRule.frequency ?? RepeatFrequency.none;
     _customInterval = e?.repeatRule.interval ?? 2;
     _customUnit = e?.repeatRule.customUnit ?? CustomRepeatUnit.days;
@@ -71,7 +76,8 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
     _ringDurationSec = e?.snoozeConfig.ringDurationSeconds ?? 0;
     _autoSnooze = e?.snoozeConfig.autoSnooze ?? true;
 
-    _ringtoneUri = e?.ringtoneUri ?? 'default';
+    final mainDefaultUri = ref.read(defaultRingtoneUriProvider);
+    _ringtoneUri = e?.ringtoneUri ?? mainDefaultUri;
     _volume = e?.volume ?? 0.85;
     _gradualVolume = e?.gradualVolume ?? true;
     _vibrate = e?.vibrate ?? true;
@@ -89,7 +95,26 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
   Future<void> _pickCustomAudio() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.audio);
     if (result != null && result.files.single.path != null) {
-      setState(() => _ringtoneUri = result.files.single.path!);
+      final pickedPath = result.files.single.path!;
+      try {
+        final docsDir = await getApplicationDocumentsDirectory();
+        final ringtonesDir = Directory(p.join(docsDir.path, 'ringtones'));
+        if (!await ringtonesDir.exists()) {
+          await ringtonesDir.create(recursive: true);
+        }
+        final fileName = p.basename(pickedPath);
+        final savedPath = p.join(ringtonesDir.path, fileName);
+        if (pickedPath != savedPath) {
+          await File(pickedPath).copy(savedPath);
+        }
+        if (mounted) {
+          setState(() => _ringtoneUri = savedPath);
+        }
+      } catch (_) {
+        if (mounted) {
+          setState(() => _ringtoneUri = pickedPath);
+        }
+      }
     }
   }
 
@@ -104,6 +129,24 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
       await _previewPlayer.play(DeviceFileSource(_ringtoneUri));
       setState(() => _isPreviewing = true);
     }
+  }
+
+  String _ringtoneDisplayLabel(BuildContext context, String mainDefaultUri, String mainDefaultName) {
+    if (_ringtoneUri == 'default' || _ringtoneUri.isEmpty) {
+      return context.tr('System Default Ringtone', 'نغمة النظام الافتراضية');
+    }
+    final name = p.basename(_ringtoneUri);
+    if (_ringtoneUri == mainDefaultUri) {
+      final display = mainDefaultName.isNotEmpty ? mainDefaultName : name;
+      return context.tr(
+        'Main Ringtone: $display',
+        'النغمة الرئيسية: $display',
+      );
+    }
+    return context.tr(
+      'Custom for this alarm: $name',
+      'نغمة مخصصة لهذا المنبه: $name',
+    );
   }
 
   Future<void> _save() async {
@@ -136,7 +179,8 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
         dayOfMonth: _selectedDate.day,
         lastDayOfMonth: _lastDayOfMonth,
         nthWeekday: _nthWeekday,
-        customPreset: _repeatFreq == RepeatFrequency.custom ? _customPreset : null,
+        customPreset:
+            _repeatFreq == RepeatFrequency.custom ? _customPreset : null,
       ),
       snoozeConfig: SnoozeConfig(
         snoozeDurationMinutes: _snoozeMinutes,
@@ -149,11 +193,11 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
       gradualVolume: _gradualVolume,
       vibrate: _vibrate,
       ringOnVibrateSilent: _ringOnVibrateSilent,
-      type: _alarmType,
+      type: AlarmType.personal,
       state: AlarmState.upcoming,
       isEnabled: true,
       updatedAtUtc: nowUtc,
-      participants: widget.existing?.participants ?? const [],
+      participants: const [],
     );
 
     await ref.read(alarmRepositoryProvider).saveAlarm(alarm);
@@ -191,9 +235,16 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewPadding.bottom;
+    final mainDefaultUri = ref.watch(defaultRingtoneUriProvider);
+    final mainDefaultName = ref.watch(defaultRingtoneNameProvider);
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.existing == null ? context.tr('New Alarm', 'منبه جديد') : context.tr('Edit Alarm', 'تعديل المنبه')),
+        title: Text(
+          widget.existing == null
+              ? context.tr('New Alarm', 'منبه جديد')
+              : context.tr('Edit Alarm', 'تعديل المنبه'),
+        ),
         actions: [
           if (widget.existing != null)
             IconButton(
@@ -214,209 +265,305 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
           child: ListView(
             padding: EdgeInsets.fromLTRB(14, 12, 14, 28 + bottomInset),
             children: [
-            TextFormField(
-              controller: _titleCtrl,
-              decoration: InputDecoration(
-                labelText: context.tr('Alarm Title', 'عنوان المنبه'),
-                border: const OutlineInputBorder(),
-              ),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? context.tr('Title is required', 'العنوان مطلوب') : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _notesCtrl,
-              maxLines: 2,
-              decoration: InputDecoration(
-                labelText: context.tr('Notes (optional)', 'ملاحظات (اختياري)'),
-                border: const OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            SegmentedButton<AlarmType>(
-              segments: [
-                ButtonSegment(value: AlarmType.personal, label: Text(context.tr('Personal', 'شخصي'))),
-                ButtonSegment(value: AlarmType.group, label: Text(context.tr('Group', 'جماعي'))),
-                ButtonSegment(value: AlarmType.buddy, label: Text(context.tr('Buddy', 'صديق'))),
-              ],
-              selected: {_alarmType},
-              onSelectionChanged: (s) => setState(() => _alarmType = s.first),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: _selectedDate,
-                        firstDate: DateTime(2024),
-                        lastDate: DateTime(2100),
-                      );
-                      if (picked != null) setState(() => _selectedDate = picked);
-                    },
-                    icon: const Icon(Icons.calendar_today),
-                    label: Text(
-                      '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}',
-                    ),
-                  ),
+              TextFormField(
+                controller: _titleCtrl,
+                decoration: InputDecoration(
+                  labelText: context.tr('Alarm Title', 'عنوان المنبه'),
+                  border: const OutlineInputBorder(),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final picked = await showTimePicker(
-                        context: context,
-                        initialTime: _selectedTime,
-                      );
-                      if (picked != null) setState(() => _selectedTime = picked);
-                    },
-                    icon: const Icon(Icons.access_time),
-                    label: Text(_selectedTime.format(context)),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<RepeatFrequency>(
-              value: _repeatFreq,
-              decoration: InputDecoration(
-                labelText: context.tr('Repeat', 'التكرار'),
-                border: const OutlineInputBorder(),
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? context.tr('Title is required', 'العنوان مطلوب')
+                    : null,
               ),
-              items: RepeatFrequency.values
-                  .map((f) => DropdownMenuItem(value: f, child: Text(context.trLabel(f.name == 'none' ? 'NONE' : f.name.toUpperCase()))))
-                  .toList(),
-              onChanged: (v) async {
-                if (v == null) return;
-                setState(() => _repeatFreq = v);
-                if (v == RepeatFrequency.custom) {
-                  await _openCustomRepeatScreen();
-                }
-              },
-            ),
-            if (_repeatFreq == RepeatFrequency.custom) ...[
-              const SizedBox(height: 8),
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.check_box, color: Color(0xFF00C853)),
-                  title: Text(
-                    context.trLabel(RepeatRule(
-                      frequency: RepeatFrequency.custom,
-                      interval: _customInterval,
-                      customUnit: _customUnit,
-                      weekdays: _weekdays,
-                      lastDayOfMonth: _lastDayOfMonth,
-                      nthWeekday: _nthWeekday,
-                      customPreset: _customPreset,
-                    ).displayLabel),
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                  ),
-                  trailing: TextButton(
-                    onPressed: _openCustomRepeatScreen,
-                    child: Text(context.tr('Change', 'تغيير')),
-                  ),
-                  onTap: _openCustomRepeatScreen,
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _notesCtrl,
+                maxLines: 2,
+                decoration: InputDecoration(
+                  labelText: context.tr('Notes (optional)', 'ملاحظات (اختياري)'),
+                  border: const OutlineInputBorder(),
                 ),
               ),
-            ],
-            if (_repeatFreq == RepeatFrequency.weekly) ...[
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                children: List.generate(7, (i) {
-                  final day = i + 1;
-                  final labels = context.isAr ? ['إ', 'ث', 'ر', 'خ', 'ج', 'س', 'ح'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-                  final selected = _weekdays.contains(day);
-                  return FilterChip(
-                    label: Text(labels[i]),
-                    selected: selected,
-                    onSelected: (v) {
-                      setState(() {
-                        if (v) {
-                          _weekdays.add(day);
-                        } else {
-                          _weekdays.remove(day);
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: _selectedDate,
+                          firstDate: DateTime(2024),
+                          lastDate: DateTime(2100),
+                        );
+                        if (picked != null) {
+                          setState(() => _selectedDate = picked);
                         }
-                      });
-                    },
-                  );
-                }),
-              ),
-            ],
-            const Divider(height: 32),
-            Text(context.tr('Snooze & Ringing', 'الغفوة والرنين'), style: Theme.of(context).textTheme.titleMedium),
-            SwitchListTile(
-              title: Text(context.tr('Ring even on Vibrate / Silent', 'الرنين حتى في وضع الصامت والاهتزاز')),
-              value: _ringOnVibrateSilent,
-              onChanged: (v) => setState(() => _ringOnVibrateSilent = v),
-            ),
-            SwitchListTile(
-              title: Text(context.tr('Gradual volume increase', 'رفع الصوت تدريجياً')),
-              value: _gradualVolume,
-              onChanged: (v) => setState(() => _gradualVolume = v),
-            ),
-            SwitchListTile(
-              title: Text(context.tr('Vibrate', 'اهتزاز')),
-              value: _vibrate,
-              onChanged: (v) => setState(() => _vibrate = v),
-            ),
-            SwitchListTile(
-              title: Text(context.tr('Auto-snooze after ring duration', 'غفوة تلقائية بعد انتهاء مدة الرنين')),
-              value: _autoSnooze,
-              onChanged: (v) => setState(() => _autoSnooze = v),
-            ),
-            ListTile(
-              title: Text(context.tr('Ring Duration: $_ringDurationSec sec (0 = continuous)', 'مدة الرنين: $_ringDurationSec ثانية (0 = مستمر)')),
-              subtitle: Slider(
-                value: _ringDurationSec.toDouble(),
-                min: 0,
-                max: 60,
-                divisions: 12,
-                onChanged: (v) => setState(() => _ringDurationSec = v.round()),
-              ),
-            ),
-            ListTile(
-              title: Text('${context.tr('Volume', 'مستوى الصوت')}: ${(_volume * 100).round()}%'),
-              subtitle: Slider(
-                value: _volume,
-                min: 0.1,
-                max: 1.0,
-                onChanged: (v) => setState(() => _volume = v),
-              ),
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _pickCustomAudio,
-                    icon: const Icon(Icons.music_note),
-                    label: Text(
-                      _ringtoneUri == 'default'
-                          ? context.tr('Default Ringtone', 'النغمة الافتراضية')
-                          : context.tr('Custom Audio Selected', 'تم اختيار صوت مخصص'),
+                      },
+                      icon: const Icon(Icons.calendar_today),
+                      label: Text(
+                        '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}',
+                      ),
                     ),
                   ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final picked = await showTimePicker(
+                          context: context,
+                          initialTime: _selectedTime,
+                        );
+                        if (picked != null) {
+                          setState(() => _selectedTime = picked);
+                        }
+                      },
+                      icon: const Icon(Icons.access_time),
+                      label: Text(_selectedTime.format(context)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<RepeatFrequency>(
+                value: _repeatFreq,
+                decoration: InputDecoration(
+                  labelText: context.tr('Repeat', 'التكرار'),
+                  border: const OutlineInputBorder(),
                 ),
-                const SizedBox(width: 8),
-                IconButton.filledTonal(
-                  onPressed: _togglePreview,
-                  icon: Icon(_isPreviewing ? Icons.stop : Icons.play_arrow),
+                items: RepeatFrequency.values
+                    .map(
+                      (f) => DropdownMenuItem(
+                        value: f,
+                        child: Text(
+                          context.trLabel(
+                            f.name == 'none' ? 'NONE' : f.name.toUpperCase(),
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) async {
+                  if (v == null) return;
+                  setState(() => _repeatFreq = v);
+                  if (v == RepeatFrequency.custom) {
+                    await _openCustomRepeatScreen();
+                  }
+                },
+              ),
+              if (_repeatFreq == RepeatFrequency.custom) ...[
+                const SizedBox(height: 8),
+                Card(
+                  child: ListTile(
+                    leading: const Icon(
+                      Icons.check_box,
+                      color: Color(0xFF00C853),
+                    ),
+                    title: Text(
+                      context.trLabel(
+                        RepeatRule(
+                          frequency: RepeatFrequency.custom,
+                          interval: _customInterval,
+                          customUnit: _customUnit,
+                          weekdays: _weekdays,
+                          lastDayOfMonth: _lastDayOfMonth,
+                          nthWeekday: _nthWeekday,
+                          customPreset: _customPreset,
+                        ).displayLabel,
+                      ),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                    trailing: TextButton(
+                      onPressed: _openCustomRepeatScreen,
+                      child: Text(context.tr('Change', 'تغيير')),
+                    ),
+                    onTap: _openCustomRepeatScreen,
+                  ),
                 ),
               ],
-            ),
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _save,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Text(context.tr('Save Alarm', 'حفظ المنبه')),
+              if (_repeatFreq == RepeatFrequency.weekly) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  children: List.generate(7, (i) {
+                    final day = i + 1;
+                    final labels = context.isAr
+                        ? ['إ', 'ث', 'ر', 'خ', 'ج', 'س', 'ح']
+                        : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+                    final selected = _weekdays.contains(day);
+                    return FilterChip(
+                      label: Text(labels[i]),
+                      selected: selected,
+                      onSelected: (v) {
+                        setState(() {
+                          if (v) {
+                            _weekdays.add(day);
+                          } else {
+                            _weekdays.remove(day);
+                          }
+                        });
+                      },
+                    );
+                  }),
+                ),
+              ],
+              const Divider(height: 32),
+              Text(
+                context.tr('Snooze & Ringing', 'الغفوة والرنين'),
+                style: Theme.of(context).textTheme.titleMedium,
               ),
-            ),
-          ],
+              SwitchListTile(
+                title: Text(
+                  context.tr(
+                    'Ring even on Vibrate / Silent',
+                    'الرنين حتى في وضع الصامت والاهتزاز',
+                  ),
+                ),
+                value: _ringOnVibrateSilent,
+                onChanged: (v) => setState(() => _ringOnVibrateSilent = v),
+              ),
+              SwitchListTile(
+                title: Text(
+                  context.tr(
+                    'Gradual volume increase',
+                    'رفع الصوت تدريجياً',
+                  ),
+                ),
+                value: _gradualVolume,
+                onChanged: (v) => setState(() => _gradualVolume = v),
+              ),
+              SwitchListTile(
+                title: Text(context.tr('Vibrate', 'اهتزاز')),
+                value: _vibrate,
+                onChanged: (v) => setState(() => _vibrate = v),
+              ),
+              SwitchListTile(
+                title: Text(
+                  context.tr(
+                    'Auto-snooze after ring duration',
+                    'غفوة تلقائية بعد انتهاء مدة الرنين',
+                  ),
+                ),
+                value: _autoSnooze,
+                onChanged: (v) => setState(() => _autoSnooze = v),
+              ),
+              ListTile(
+                title: Text(
+                  context.tr(
+                    'Ring Duration: $_ringDurationSec sec (0 = continuous)',
+                    'مدة الرنين: $_ringDurationSec ثانية (0 = مستمر)',
+                  ),
+                ),
+                subtitle: Slider(
+                  value: _ringDurationSec.toDouble(),
+                  min: 0,
+                  max: 60,
+                  divisions: 12,
+                  onChanged: (v) =>
+                      setState(() => _ringDurationSec = v.round()),
+                ),
+              ),
+              ListTile(
+                title: Text(
+                  '${context.tr('Volume', 'مستوى الصوت')}: ${(_volume * 100).round()}%',
+                ),
+                subtitle: Slider(
+                  value: _volume,
+                  min: 0.1,
+                  max: 1.0,
+                  onChanged: (v) => setState(() => _volume = v),
+                ),
+              ),
+              Card(
+                margin: const EdgeInsets.symmetric(vertical: 6),
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.music_note),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _ringtoneDisplayLabel(
+                                context,
+                                mainDefaultUri,
+                                mainDefaultName,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          if (_ringtoneUri.startsWith('/'))
+                            IconButton.filledTonal(
+                              onPressed: _togglePreview,
+                              icon: Icon(
+                                _isPreviewing ? Icons.stop : Icons.play_arrow,
+                              ),
+                              tooltip: context.tr('Preview', 'معاينة'),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: _pickCustomAudio,
+                            icon: const Icon(Icons.audio_file_outlined, size: 18),
+                            label: Text(
+                              context.tr(
+                                'Choose Ringtone for this Alarm',
+                                'اختيار نغمة خاصة لهذا المنبه',
+                              ),
+                            ),
+                          ),
+                          if (_ringtoneUri != mainDefaultUri)
+                            TextButton.icon(
+                              onPressed: () async {
+                                if (_isPreviewing) {
+                                  await _previewPlayer.stop();
+                                }
+                                setState(() {
+                                  _isPreviewing = false;
+                                  _ringtoneUri = mainDefaultUri;
+                                });
+                              },
+                              icon: const Icon(Icons.restore, size: 18),
+                              label: Text(
+                                context.tr(
+                                  'Use Main Default Ringtone',
+                                  'استخدام النغمة الرئيسية الافتراضية',
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: _save,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(context.tr('Save Alarm', 'حفظ المنبه')),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }

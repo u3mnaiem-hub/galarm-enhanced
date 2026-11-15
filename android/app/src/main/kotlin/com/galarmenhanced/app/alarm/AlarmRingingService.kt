@@ -196,10 +196,14 @@ class AlarmRingingService : Service() {
         ringOnVibrateSilent: Boolean
     ) {
         try {
-            val uri: Uri = when (ringtoneUri) {
-                "default", "chime", "radar", "" ->
-                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                        ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val defaultUri: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val uri: Uri = when {
+                ringtoneUri == "default" || ringtoneUri == "chime" || ringtoneUri == "radar" || ringtoneUri.isBlank() -> defaultUri
+                ringtoneUri.startsWith("/") -> {
+                    val f = java.io.File(ringtoneUri)
+                    if (f.exists()) Uri.fromFile(f) else defaultUri
+                }
                 else -> Uri.parse(ringtoneUri)
             }
 

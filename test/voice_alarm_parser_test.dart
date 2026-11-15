@@ -15,13 +15,13 @@ void main() {
     expect(intent.title, contains('تمرين الجيم'));
   });
 
-  test('Parses daily evening group alarm in Arabic', () {
+  test('Parses daily evening personal alarm in Arabic', () {
     final intent = VoiceAlarmParser.parse(
-      'اعمل منبه جماعي كل يوم الساعة 8 مساءً الاجتماع',
+      'اعمل منبه كل يوم الساعة 8 مساءً الاجتماع',
       nowLocal: fixedNow,
     );
     expect(intent.action, VoiceIntentAction.createAlarm);
-    expect(intent.alarmType, AlarmType.group);
+    expect(intent.alarmType, AlarmType.personal);
     expect(intent.repeatFrequency, RepeatFrequency.daily);
     expect(intent.localDateTime?.hour, 20);
   });

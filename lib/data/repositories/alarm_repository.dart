@@ -24,9 +24,12 @@ class AlarmRepository {
     });
   }
 
-  Future<void> saveAlarm(Alarm alarm, {bool isOnline = true}) async {
+  Future<void> saveAlarm(Alarm alarm, {bool isOnline = false}) async {
     final nowUtc = DateTime.now().toUtc();
-    final updated = alarm.copyWith(updatedAtUtc: nowUtc);
+    final updated = alarm.copyWith(
+      type: AlarmType.personal,
+      updatedAtUtc: nowUtc,
+    );
 
     await _db.upsertAlarm(
       AlarmsTableCompanion(
@@ -54,47 +57,56 @@ class AlarmRepository {
       ),
     );
 
-    for (final p in updated.participants) {
-      await _db.upsertParticipant(
-        AlarmParticipantsTableCompanion(
-          alarmId: Value(updated.id),
-          uid: Value(p.uid),
-          displayName: Value(p.displayName),
-          photoUrl: Value(p.photoUrl),
-          timezoneId: Value(p.timezoneId),
-          status: Value(p.status.name),
-          updatedAtUtc: Value(nowUtc),
-        ),
-      );
-    }
-
     await _scheduleOrCancelNative(updated);
-
-    if (isOnline && _remote != null) {
-      try {
-        await _remote!.syncAlarm(updated);
-      } catch (_) {
-        await _db.enqueueSync('alarm', updated.id, jsonEncode({'id': updated.id}));
-      }
-    } else {
-      await _db.enqueueSync('alarm', updated.id, jsonEncode({'id': updated.id}));
-    }
   }
 
-  Future<void> deleteAlarm(String alarmId, {bool isOnline = true}) async {
+  Future<void> deleteAlarm(String alarmId, {bool isOnline = false}) async {
     final nowUtc = DateTime.now().toUtc();
     await _db.softDeleteAlarm(alarmId, nowUtc);
     await _native.cancelAlarm(alarmId.hashCode, alarmId);
+  }
 
-    if (isOnline && _remote != null) {
-      try {
-        await _remote!.deleteAlarm(alarmId);
-      } catch (_) {
-        await _db.enqueueSync('delete_alarm', alarmId, '{}');
-      }
-    } else {
-      await _db.enqueueSync('delete_alarm', alarmId, '{}');
+  Future<String> exportAlarmsBackupJson({
+    String defaultRingtoneUri = 'default',
+    String defaultRingtoneName = '',
+  }) async {
+    final rows = await _db.getActiveAlarms();
+    final alarms = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      final alarm = _mapRowToAlarm(r, const []);
+      alarms.add(alarm.toBackupMap());
     }
+    final payload = <String, dynamic>{
+      'app': 'U3m Alarm',
+      'version': 1,
+      'exportedAtUtc': DateTime.now().toUtc().toIso8601String(),
+      'defaultRingtoneUri': defaultRingtoneUri,
+      'defaultRingtoneName': defaultRingtoneName,
+      'alarms': alarms,
+    };
+    return const JsonEncoder.withIndent('  ').convert(payload);
+  }
+
+  Future<int> importAlarmsBackupJson(String rawJson) async {
+    final decoded = jsonDecode(rawJson);
+    List<dynamic> alarmsList;
+    if (decoded is Map<String, dynamic> && decoded['alarms'] is List) {
+      alarmsList = decoded['alarms'] as List<dynamic>;
+    } else if (decoded is List) {
+      alarmsList = decoded;
+    } else {
+      throw const FormatException('Invalid backup file format');
+    }
+
+    int count = 0;
+    for (final item in alarmsList) {
+      if (item is Map<String, dynamic>) {
+        final alarm = Alarm.fromBackupMap(item);
+        await saveAlarm(alarm);
+        count++;
+      }
+    }
+    return count;
   }
 
   Future<void> markOccurrenceDone(Alarm alarm) async {

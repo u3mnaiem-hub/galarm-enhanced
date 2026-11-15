@@ -292,6 +292,71 @@ class Alarm {
       participants: participants ?? this.participants,
     );
   }
+
+  Map<String, dynamic> toBackupMap() => {
+        'id': id,
+        'ownerId': ownerId,
+        'title': title,
+        'notes': notes,
+        'startAtUtc': startAtUtc.toUtc().toIso8601String(),
+        'creatorTimezoneId': creatorTimezoneId,
+        'repeatRule': repeatRule.toJson(),
+        'snoozeConfig': snoozeConfig.toJson(),
+        'ringtoneUri': ringtoneUri,
+        'volume': volume,
+        'gradualVolume': gradualVolume,
+        'vibrate': vibrate,
+        'ringOnVibrateSilent': ringOnVibrateSilent,
+        'type': AlarmType.personal.name,
+        'state': state.name,
+        'isEnabled': isEnabled,
+        'occurrenceCount': occurrenceCount,
+        'currentSnoozeCount': currentSnoozeCount,
+        'snoozedUntilUtc': snoozedUntilUtc?.toUtc().toIso8601String(),
+        'updatedAtUtc': updatedAtUtc.toUtc().toIso8601String(),
+      };
+
+  factory Alarm.fromBackupMap(Map<String, dynamic> map) {
+    final nowUtc = DateTime.now().toUtc();
+    return Alarm(
+      id: (map['id'] as String?)?.isNotEmpty == true
+          ? map['id'] as String
+          : 'restored_${nowUtc.microsecondsSinceEpoch}',
+      ownerId: (map['ownerId'] as String?) ?? 'local_user',
+      title: (map['title'] as String?) ?? 'Alarm',
+      notes: (map['notes'] as String?) ?? '',
+      startAtUtc: map['startAtUtc'] != null
+          ? (DateTime.tryParse(map['startAtUtc'] as String)?.toUtc() ?? nowUtc)
+          : nowUtc,
+      creatorTimezoneId: (map['creatorTimezoneId'] as String?) ?? 'UTC',
+      repeatRule: map['repeatRule'] is Map<String, dynamic>
+          ? RepeatRule.fromJson(map['repeatRule'] as Map<String, dynamic>)
+          : RepeatRule.fromJsonString((map['repeatRuleJson'] as String?) ?? ''),
+      snoozeConfig: map['snoozeConfig'] is Map<String, dynamic>
+          ? SnoozeConfig.fromJson(map['snoozeConfig'] as Map<String, dynamic>)
+          : SnoozeConfig.fromJsonString((map['snoozeConfigJson'] as String?) ?? ''),
+      ringtoneUri: (map['ringtoneUri'] as String?) ?? 'default',
+      volume: (map['volume'] as num?)?.toDouble() ?? 0.85,
+      gradualVolume: map['gradualVolume'] as bool? ?? true,
+      vibrate: map['vibrate'] as bool? ?? true,
+      ringOnVibrateSilent: map['ringOnVibrateSilent'] as bool? ?? true,
+      type: AlarmType.personal,
+      state: AlarmState.values.firstWhere(
+        (e) => e.name == map['state'],
+        orElse: () => AlarmState.upcoming,
+      ),
+      isEnabled: map['isEnabled'] as bool? ?? true,
+      occurrenceCount: (map['occurrenceCount'] as num?)?.toInt() ?? 0,
+      currentSnoozeCount: (map['currentSnoozeCount'] as num?)?.toInt() ?? 0,
+      snoozedUntilUtc: map['snoozedUntilUtc'] != null
+          ? DateTime.tryParse(map['snoozedUntilUtc'] as String)?.toUtc()
+          : null,
+      updatedAtUtc: map['updatedAtUtc'] != null
+          ? (DateTime.tryParse(map['updatedAtUtc'] as String)?.toUtc() ?? nowUtc)
+          : nowUtc,
+      participants: const [],
+    );
+  }
 }
 
 class ChatMessage {

@@ -84,4 +84,36 @@ class NativeAlarmChannel {
   Future<void> openNotificationPolicySettings() async {
     await _channel.invokeMethod('openNotificationPolicySettings');
   }
+
+  Future<String?> saveBackupToDownloads({
+    required String fileName,
+    required String content,
+  }) async {
+    return await _channel.invokeMethod<String>('saveBackupToDownloads', {
+      'fileName': fileName,
+      'content': content,
+    });
+  }
+
+  Future<bool> saveBackupWithPicker({
+    required String fileName,
+    required String content,
+  }) async {
+    return await _channel.invokeMethod<bool>('saveBackupWithPicker', {
+          'fileName': fileName,
+          'content': content,
+        }) ??
+        false;
+  }
+
+  Future<bool> shareBackupFile({
+    required String fileName,
+    required String content,
+  }) async {
+    return await _channel.invokeMethod<bool>('shareBackupFile', {
+          'fileName': fileName,
+          'content': content,
+        }) ??
+        false;
+  }
 }

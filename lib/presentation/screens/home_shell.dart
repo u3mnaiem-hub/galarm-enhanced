@@ -2,7 +2,6 @@ import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'alarms_tab.dart';
 import 'notifications_tab.dart';
-import 'contacts_groups_tab.dart';
 import 'settings_tab.dart';
 import 'alarm_editor_screen.dart';
 import '../widgets/voice_assistant_sheet.dart';
@@ -20,7 +19,6 @@ class _HomeShellState extends State<HomeShell> {
   static const _pages = [
     AlarmsTab(),
     NotificationsTab(),
-    ContactsGroupsTab(),
     SettingsTab(),
   ];
 
@@ -65,22 +63,17 @@ class _HomeShellState extends State<HomeShell> {
         destinations: [
           NavigationDestination(
             icon: const Icon(Icons.alarm_outlined),
-            selectedIcon: Icon(Icons.alarm),
+            selectedIcon: const Icon(Icons.alarm),
             label: context.tr('Alarms', 'المنبهات'),
           ),
           NavigationDestination(
-            icon: Icon(Icons.notifications_outlined),
-            selectedIcon: Icon(Icons.notifications),
+            icon: const Icon(Icons.notifications_outlined),
+            selectedIcon: const Icon(Icons.notifications),
             label: context.tr('Notifications', 'الإشعارات'),
           ),
           NavigationDestination(
-            icon: Icon(Icons.group_outlined),
-            selectedIcon: Icon(Icons.group),
-            label: context.tr('Groups', 'المجموعات'),
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
+            icon: const Icon(Icons.settings_outlined),
+            selectedIcon: const Icon(Icons.settings),
             label: context.tr('Settings', 'الإعدادات'),
           ),
         ],

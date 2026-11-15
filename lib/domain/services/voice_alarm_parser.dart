@@ -130,11 +130,7 @@ class VoiceAlarmParser {
       }
 
       final repeat = _extractRepeat(lower);
-      final type = _containsAny(lower, ['جماعي', 'مجموعة', 'group'])
-          ? AlarmType.group
-          : _containsAny(lower, ['صديق', 'لصديق', 'buddy'])
-              ? AlarmType.buddy
-              : AlarmType.personal;
+      const type = AlarmType.personal;
 
       final title = _extractCreateTitle(text);
 

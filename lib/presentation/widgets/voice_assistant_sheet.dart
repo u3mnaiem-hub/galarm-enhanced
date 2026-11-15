@@ -179,7 +179,8 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet> {
           startAtUtc: localDt.toUtc(),
           creatorTimezoneId: tzId,
           repeatRule: RepeatRule(frequency: _pendingRepeat),
-          type: _pendingType,
+          ringtoneUri: ref.read(defaultRingtoneUriProvider),
+          type: AlarmType.personal,
           updatedAtUtc: DateTime.now().toUtc(),
         );
         await repo.saveAlarm(alarm);
