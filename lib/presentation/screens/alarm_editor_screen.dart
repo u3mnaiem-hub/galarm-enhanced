@@ -173,7 +173,7 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
       creatorTimezoneId: widget.existing?.creatorTimezoneId ?? tzId,
       repeatRule: RepeatRule(
         frequency: _repeatFreq,
-        interval: _customInterval,
+        interval: _repeatFreq == RepeatFrequency.custom ? _customInterval : 1,
         customUnit: _customUnit,
         weekdays: _weekdays,
         dayOfMonth: _selectedDate.day,
