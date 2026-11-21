@@ -6,7 +6,8 @@ import '../../data/remote/fcm_alarm_service.dart';
 import '../../domain/entities/alarm.dart';
 import '../providers/app_providers.dart';
 import 'alarms_tab.dart';
-import 'contacts_groups_tab.dart';
+import 'buddies_screen.dart';
+import 'groups_screen.dart';
 import 'notifications_tab.dart';
 import 'settings_tab.dart';
 import 'alarm_editor_screen.dart';
@@ -91,7 +92,8 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
 
   static const _pages = [
     AlarmsTab(),
-    ContactsGroupsTab(),
+    BuddiesScreen(),
+    GroupsScreen(),
     NotificationsTab(),
     SettingsTab(),
   ];
@@ -141,9 +143,14 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
             label: context.tr('Alarms', 'المنبهات'),
           ),
           NavigationDestination(
+            icon: const Icon(Icons.people_outline),
+            selectedIcon: const Icon(Icons.people_alt_rounded),
+            label: context.tr('Buddies', 'الأصدقاء'),
+          ),
+          NavigationDestination(
             icon: const Icon(Icons.groups_outlined),
             selectedIcon: const Icon(Icons.groups),
-            label: context.tr('Buddies', 'الأصدقاء'),
+            label: context.tr('Groups', 'المجموعات'),
           ),
           NavigationDestination(
             icon: const Icon(Icons.notifications_outlined),

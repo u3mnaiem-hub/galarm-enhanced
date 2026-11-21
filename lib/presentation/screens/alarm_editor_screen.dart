@@ -13,7 +13,8 @@ import '../../domain/entities/alarm.dart';
 import '../../domain/entities/buddy_group.dart';
 import '../providers/app_providers.dart';
 import '../theme/app_theme.dart';
-import 'contacts_groups_tab.dart';
+import 'buddies_screen.dart';
+import 'groups_screen.dart';
 import 'custom_repeat_screen.dart';
 
 class AlarmEditorScreen extends ConsumerStatefulWidget {
@@ -507,7 +508,7 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
                             TextButton(
                               onPressed: () => Navigator.of(context).push(
                                 MaterialPageRoute(
-                                  builder: (_) => const ContactsGroupsTab(),
+                                  builder: (_) => const BuddiesScreen(),
                                 ),
                               ),
                               child: Text(context.tr('Manage', 'إدارة')),
@@ -581,7 +582,7 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
                             TextButton(
                               onPressed: () => Navigator.of(context).push(
                                 MaterialPageRoute(
-                                  builder: (_) => const ContactsGroupsTab(),
+                                  builder: (_) => const GroupsScreen(),
                                 ),
                               ),
                               child: Text(context.tr('Manage', 'إدارة')),

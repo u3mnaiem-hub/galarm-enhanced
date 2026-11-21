@@ -83,7 +83,7 @@ Future<void> main() async {
       ],
       child: GAlarmEnhancedApp(
         initialSeenOnboarding: seenOnboarding,
-        initialSeenPhoneAuth: seenPhoneAuth || initialUid != 'local_user',
+        initialIsSignedIn: initialUid != 'local_user',
       ),
     ),
   );
@@ -91,11 +91,11 @@ Future<void> main() async {
 
 class GAlarmEnhancedApp extends ConsumerStatefulWidget {
   final bool initialSeenOnboarding;
-  final bool initialSeenPhoneAuth;
+  final bool initialIsSignedIn;
   const GAlarmEnhancedApp({
     super.key,
     required this.initialSeenOnboarding,
-    required this.initialSeenPhoneAuth,
+    required this.initialIsSignedIn,
   });
 
   @override
@@ -104,7 +104,7 @@ class GAlarmEnhancedApp extends ConsumerStatefulWidget {
 
 class _GAlarmEnhancedAppState extends ConsumerState<GAlarmEnhancedApp> {
   late bool _seenOnboarding = widget.initialSeenOnboarding;
-  late bool _seenPhoneAuth = widget.initialSeenPhoneAuth;
+  late bool _passedPhoneAuth = widget.initialIsSignedIn;
 
   @override
   Widget build(BuildContext context) {
@@ -120,12 +120,10 @@ class _GAlarmEnhancedAppState extends ConsumerState<GAlarmEnhancedApp> {
           if (mounted) setState(() => _seenOnboarding = true);
         },
       );
-    } else if (!_seenPhoneAuth && Firebase.apps.isNotEmpty) {
+    } else if (!_passedPhoneAuth) {
       home = PhoneAuthScreen(
-        onAuthenticated: () async {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('seen_phone_auth', true);
-          if (mounted) setState(() => _seenPhoneAuth = true);
+        onAuthenticated: () {
+          if (mounted) setState(() => _passedPhoneAuth = true);
         },
       );
     } else {
