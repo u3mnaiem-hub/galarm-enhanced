@@ -229,6 +229,54 @@ void main() {
       expect(intent.action, VoiceIntentAction.snoozeAlarm);
       expect(intent.snoozeMinutes, 10);
     });
+
+    test('22. Arabic diacritics & letter normalization (أ/إ/آ, ى, ة)', () {
+      final norm = VoiceAlarmParser.normalizeArabic('فَكِّرْني بُكْرَة السَّاعَة ٧ الصُّبْح أَخُد الدَّوا');
+      expect(norm, 'فكرني بكره الساعه 7 الصبح اخد الدوا');
+
+      final intent = VoiceAlarmParser.parse(
+        'فَكِّرْني بُكْرَة السَّاعَة ٧ الصُّبْح أَخُد الدَّوا',
+        nowLocal: fixedNow,
+      );
+      expect(intent.action, VoiceIntentAction.createAlarm);
+      expect(intent.localDateTime, DateTime(2026, 11, 14, 7, 0));
+    });
+
+    test('23. Next week with specific weekday: الأسبوع الجاي يوم الحد', () {
+      final intent = VoiceAlarmParser.parse(
+        'فكرني الأسبوع الجاي يوم الحد الساعة ١٠ الصبح تجديد الرخصة',
+        nowLocal: fixedNow,
+      );
+      expect(intent.action, VoiceIntentAction.createAlarm);
+      expect(intent.localDateTime?.weekday, DateTime.sunday);
+      expect(intent.localDateTime?.hour, 10);
+      expect(intent.title, 'تجديد الرخصة');
+    });
+
+    test('24. Spoken Arabic number word حداشر / اتناشر', () {
+      final intent11 = VoiceAlarmParser.parse(
+        'فكرني بكره الساعة حداشر الصبح معاد البنك',
+        nowLocal: fixedNow,
+      );
+      expect(intent11.localDateTime, DateTime(2026, 11, 14, 11, 0));
+      expect(intent11.title, 'معاد البنك');
+
+      final intent12 = VoiceAlarmParser.parse(
+        'نبهني بكره الساعة اتناشر الضهر الغدا',
+        nowLocal: fixedNow,
+      );
+      expect(intent12.localDateTime, DateTime(2026, 11, 14, 12, 0));
+      expect(intent12.title, 'الغدا');
+    });
+
+    test('25. Relative one hour: بعد ساعة', () {
+      final intent = VoiceAlarmParser.parse(
+        'فكرني بعد ساعة أرد على الإيميل',
+        nowLocal: fixedNow,
+      );
+      expect(intent.localDateTime, fixedNow.add(const Duration(hours: 1)));
+      expect(intent.title, 'أرد على الإيميل');
+    });
   });
 
   group('Confirmation & voice correction replies', () {

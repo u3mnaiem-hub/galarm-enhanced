@@ -26,7 +26,7 @@ Future<void> main() async {
   final savedDefaultRingtoneName = prefs.getString('default_ringtone_name') ?? '';
   final savedUse24h = prefs.getBool('use_24h_format') ?? false;
   final savedSkipVoiceConfirm = prefs.getBool('skip_voice_confirmation') ?? false;
-  final savedGeminiApiKey = prefs.getString('gemini_api_key') ?? '';
+  final savedOfflineVoiceMode = prefs.getBool('offline_voice_mode') ?? false;
   final savedLocaleCode = prefs.getString('locale_code');
   final savedThemeStr = prefs.getString('theme_mode');
 
@@ -41,7 +41,7 @@ Future<void> main() async {
         defaultRingtoneNameProvider.overrideWith((ref) => savedDefaultRingtoneName),
         use24HourFormatProvider.overrideWith((ref) => savedUse24h),
         skipVoiceConfirmationProvider.overrideWith((ref) => savedSkipVoiceConfirm),
-        geminiApiKeyProvider.overrideWith((ref) => savedGeminiApiKey),
+        offlineVoiceModeProvider.overrideWith((ref) => savedOfflineVoiceMode),
         localeProvider.overrideWith(
           (ref) => (savedLocaleCode != null && savedLocaleCode.isNotEmpty)
               ? Locale(savedLocaleCode)

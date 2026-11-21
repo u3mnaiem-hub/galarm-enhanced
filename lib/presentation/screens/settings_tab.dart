@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
@@ -7,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../data/platform/native_voice_channel.dart';
 import '../../l10n/tr.dart';
 import '../providers/app_providers.dart';
 
@@ -21,8 +23,69 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
   final AudioPlayer _previewPlayer = AudioPlayer();
   bool _isPreviewing = false;
 
+  // Offline voice mode state
+  StreamSubscription<VoiceEvent>? _voiceSub;
+  OfflineVoiceStatus _offlineStatus = const OfflineVoiceStatus();
+  bool _voskWifiOnly = true;
+  bool _isDownloadingOnDevice = false;
+  int _onDeviceProgress = 0;
+  bool _isDownloadingVosk = false;
+  int _voskProgress = 0;
+  String? _offlineProgressMsg;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_initOfflineStatus);
+  }
+
+  Future<void> _initOfflineStatus() async {
+    final voice = ref.read(nativeVoiceChannelProvider);
+    _voiceSub = voice.events.listen(_onVoiceProgressEvent);
+    await _refreshOfflineStatus();
+  }
+
+  Future<void> _refreshOfflineStatus() async {
+    final voice = ref.read(nativeVoiceChannelProvider);
+    final st = await voice.getOfflineStatus(language: 'ar-EG');
+    if (mounted) {
+      setState(() {
+        _offlineStatus = st;
+        _isDownloadingVosk = st.voskDownloading;
+        if (st.voskDownloading) _voskProgress = st.voskProgress;
+        _isDownloadingOnDevice = st.onDeviceStatus == 'downloading';
+      });
+    }
+  }
+
+  void _onVoiceProgressEvent(VoiceEvent e) {
+    if (!mounted) return;
+    if (e.type == 'vosk_progress') {
+      final phase = e.phase ?? '';
+      setState(() {
+        _voskProgress = e.percent ?? _voskProgress;
+        _offlineProgressMsg = e.message;
+        _isDownloadingVosk = phase == 'downloading' || phase == 'extracting';
+      });
+      if (phase == 'ready' || phase == 'deleted' || phase == 'error' || phase == 'cancelled') {
+        _refreshOfflineStatus();
+      }
+    } else if (e.type == 'on_device_progress') {
+      final phase = e.phase ?? '';
+      setState(() {
+        _onDeviceProgress = e.percent ?? _onDeviceProgress;
+        _offlineProgressMsg = e.message;
+        _isDownloadingOnDevice = phase == 'downloading';
+      });
+      if (phase == 'ready' || phase == 'error') {
+        _refreshOfflineStatus();
+      }
+    }
+  }
+
   @override
   void dispose() {
+    _voiceSub?.cancel();
     _previewPlayer.dispose();
     super.dispose();
   }
@@ -242,8 +305,27 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     final defaultRingtoneUri = ref.watch(defaultRingtoneUriProvider);
     final defaultRingtoneName = ref.watch(defaultRingtoneNameProvider);
     final skipVoiceConfirm = ref.watch(skipVoiceConfirmationProvider);
-    final geminiApiKey = ref.watch(geminiApiKeyProvider);
+    final offlineVoiceMode = ref.watch(offlineVoiceModeProvider);
     final native = ref.watch(nativeAlarmChannelProvider);
+    final voice = ref.watch(nativeVoiceChannelProvider);
+
+    final overallOfflineStatusText = (_isDownloadingOnDevice ||
+            _isDownloadingVosk ||
+            _offlineStatus.isAnyDownloading)
+        ? context.tr('Downloading...', 'جاري التحميل')
+        : (_offlineStatus.isAnyOfflineReady
+            ? context.tr('Ready', 'جاهز')
+            : context.tr('Not installed', 'غير مثبّت'));
+
+    final overallOfflineStatusColor = (_isDownloadingOnDevice ||
+            _isDownloadingVosk ||
+            _offlineStatus.isAnyDownloading)
+        ? Colors.orange
+        : (_offlineStatus.isAnyOfflineReady ? const Color(0xFF059669) : Colors.grey);
+
+    final voskSizeMb = _offlineStatus.voskSizeBytes > 0
+        ? (_offlineStatus.voskSizeBytes / (1024 * 1024)).toStringAsFixed(0)
+        : '${_offlineStatus.voskApproxDownloadMb}';
 
     final isCustomDefault =
         defaultRingtoneUri != 'default' && defaultRingtoneUri.isNotEmpty;
@@ -357,70 +439,336 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                     await prefs.setBool('skip_voice_confirmation', v);
                   },
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.auto_awesome_outlined),
-                  title: Text(
-                    context.tr(
-                      'Gemini AI Parser Key (Optional)',
-                      'مفتاح Gemini للذكاء الاصطناعي (اختياري)',
-                    ),
-                  ),
-                  subtitle: Text(
-                    geminiApiKey.trim().isNotEmpty
-                        ? context.tr(
-                            'Configured (stored locally on device)',
-                            'مُفعّل (محفوظ محلياً على جهازك)',
-                          )
-                        : context.tr(
-                            'Using smart offline Egyptian Arabic parser',
-                            'يعمل حالياً بالمحلل المحلي للعامية المصرية بدون إنترنت',
-                          ),
-                  ),
-                  onTap: () async {
-                    final ctrl = TextEditingController(text: geminiApiKey);
-                    final saved = await showDialog<String>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: Text(
-                          context.tr(
-                            'Gemini API Key',
-                            'مفتاح Gemini API',
-                          ),
-                        ),
-                        content: TextField(
-                          controller: ctrl,
-                          obscureText: true,
-                          decoration: InputDecoration(
-                            hintText: 'AIza...',
-                            labelText: context.tr(
-                              'Paste API key (leave empty for offline mode)',
-                              'الصق المفتاح (أو اتركه فارغاً للوضع المحلي)',
-                            ),
-                          ),
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(ctx).pop(),
-                            child: Text(context.tr('Cancel', 'إلغاء')),
-                          ),
-                          FilledButton(
-                            onPressed: () =>
-                                Navigator.of(ctx).pop(ctrl.text.trim()),
-                            child: Text(context.tr('Save', 'حفظ')),
-                          ),
-                        ],
+              ],
+            ),
+          ),
+          const Divider(),
+
+          // Offline Voice Mode Section (الوضع الأوفلاين)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  context.tr('Offline Mode', 'الوضع الأوفلاين'),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
-                    );
-                    ctrl.dispose();
-                    if (saved != null) {
-                      ref.read(geminiApiKeyProvider.notifier).state = saved;
-                      final prefs = await SharedPreferences.getInstance();
-                      await prefs.setString('gemini_api_key', saved);
-                    }
-                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.refresh, size: 20),
+                  tooltip: context.tr('Refresh status', 'تحديث الحالة'),
+                  onPressed: _refreshOfflineStatus,
                 ),
               ],
+            ),
+          ),
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SwitchListTile(
+                    secondary: const Icon(Icons.cloud_off_rounded),
+                    title: Text(
+                      context.tr(
+                        'Offline Speech Recognition',
+                        'التعرف على الصوت بدون إنترنت',
+                      ),
+                    ),
+                    subtitle: Row(
+                      children: [
+                        Text(context.tr('Status: ', 'الحالة: ')),
+                        Text(
+                          overallOfflineStatusText,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: overallOfflineStatusColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    value: offlineVoiceMode,
+                    onChanged: (v) async {
+                      ref.read(offlineVoiceModeProvider.notifier).state = v;
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setBool('offline_voice_mode', v);
+                      if (v) {
+                        await _refreshOfflineStatus();
+                      }
+                    },
+                  ),
+                  if (_offlineProgressMsg != null &&
+                      _offlineProgressMsg!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: Text(
+                        _offlineProgressMsg!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  const Divider(height: 1),
+
+                  // Engine A: Android On-Device SpeechRecognizer
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.android_rounded, size: 18),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                context.tr(
+                                  'Engine 1: Android On-Device (Primary)',
+                                  'المحرك الأساسي: التعرف الصوتي المدمج بأندرويد',
+                                ),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _offlineStatus.isOnDeviceReady
+                              ? context.tr(
+                                  'Arabic offline pack is ready on this device.',
+                                  'حزمة اللغة العربية جاهزة للعمل بدون إنترنت على جهازك.',
+                                )
+                              : (_offlineStatus.onDeviceSupported
+                                  ? context.tr(
+                                      'Supported — tap below to download the Arabic (Egypt) pack.',
+                                      'مدعوم — اضغط بالأسفل لتحميل حزمة العربية (مصر) للعمل بدون إنترنت.',
+                                    )
+                                  : context.tr(
+                                      'Not supported automatically on this Android version. Open phone speech settings to install Arabic (Egypt) offline pack manually.',
+                                      'التحميل التلقائي غير مدعوم على هذا الإصدار. افتح إعدادات الصوت في الهاتف لتحميل حزمة العربية (مصر) يدوياً.',
+                                    )),
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
+                        ),
+                        if (_isDownloadingOnDevice) ...[
+                          const SizedBox(height: 8),
+                          LinearProgressIndicator(
+                            value: _onDeviceProgress > 0
+                                ? _onDeviceProgress / 100.0
+                                : null,
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: [
+                            if (!_offlineStatus.isOnDeviceReady &&
+                                _offlineStatus.onDeviceSupported)
+                              FilledButton.tonalIcon(
+                                onPressed: _isDownloadingOnDevice
+                                    ? null
+                                    : () async {
+                                        setState(() {
+                                          _isDownloadingOnDevice = true;
+                                          _offlineProgressMsg =
+                                              'جاري طلب تحميل حزمة العربية...';
+                                        });
+                                        await voice.downloadOnDevicePack(
+                                          language: 'ar-EG',
+                                        );
+                                        await _refreshOfflineStatus();
+                                      },
+                                icon: const Icon(Icons.download_rounded, size: 18),
+                                label: Text(
+                                  context.tr(
+                                    'Download Arabic Pack',
+                                    'تحميل حزمة العربية',
+                                  ),
+                                ),
+                              ),
+                            OutlinedButton.icon(
+                              onPressed: () => voice.openSpeechSettings(),
+                              icon: const Icon(Icons.settings_voice, size: 18),
+                              label: Text(
+                                context.tr(
+                                  'Phone Speech Settings',
+                                  'إعدادات الصوت في الهاتف',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const Divider(height: 18),
+
+                  // Engine B: Vosk Fallback (Apache-2.0, on-demand download)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.memory_rounded, size: 18),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                context.tr(
+                                  'Engine 2: Vosk Local Model (Fallback)',
+                                  'المحرك البديل: نموذج Vosk المحلي (مجاني ومفتوح المصدر)',
+                                ),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _offlineStatus.voskInstalled
+                              ? context.tr(
+                                  'Installed in app storage ($voskSizeMb MB).',
+                                  'مثبّت في ذاكرة التطبيق ($voskSizeMb ميجابايت).',
+                                )
+                              : context.tr(
+                                  'Not installed (download size ~$voskSizeMb MB, stored privately in app).',
+                                  'غير مثبّت (حجم التحميل ~$voskSizeMb ميجابايت، يُحفظ داخل التطبيق فقط).',
+                                ),
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withOpacity(0.14),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: Colors.amber.withOpacity(0.45),
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.warning_amber_rounded,
+                                size: 16,
+                                color: Colors.amber,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  context.tr(
+                                    'Note: Vosk accuracy with Egyptian Arabic dialect may be lower than Google online speech recognition.',
+                                    'تنبيه: دقة نموذج Vosk مع اللهجة المصرية قد تكون أقل من التعرف الصوتي أونلاين من جوجل.',
+                                  ),
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: Text(
+                            context.tr(
+                              'Download over Wi-Fi only',
+                              'التحميل عبر Wi-Fi فقط',
+                            ),
+                            style: const TextStyle(fontSize: 12.5),
+                          ),
+                          value: _voskWifiOnly,
+                          onChanged: (v) => setState(() => _voskWifiOnly = v),
+                        ),
+                        if (_isDownloadingVosk) ...[
+                          LinearProgressIndicator(
+                            value: _voskProgress > 0
+                                ? _voskProgress / 100.0
+                                : null,
+                          ),
+                          const SizedBox(height: 6),
+                        ],
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: [
+                            if (!_offlineStatus.voskInstalled &&
+                                !_isDownloadingVosk)
+                              FilledButton.tonalIcon(
+                                onPressed: () async {
+                                  setState(() {
+                                    _isDownloadingVosk = true;
+                                    _voskProgress = 0;
+                                    _offlineProgressMsg =
+                                        'جاري بدء تحميل نموذج Vosk...';
+                                  });
+                                  await voice.downloadVoskModel(
+                                    wifiOnly: _voskWifiOnly,
+                                  );
+                                },
+                                icon: const Icon(Icons.cloud_download_outlined,
+                                    size: 18),
+                                label: Text(
+                                  context.tr(
+                                    'Download Model (~$voskSizeMb MB)',
+                                    'تحميل النموذج (~$voskSizeMb م.ب)',
+                                  ),
+                                ),
+                              ),
+                            if (_isDownloadingVosk)
+                              OutlinedButton.icon(
+                                onPressed: () => voice.cancelVoskDownload(),
+                                icon: const Icon(Icons.pause_circle_outline,
+                                    size: 18),
+                                label: Text(
+                                  context.tr('Pause / Cancel', 'إيقاف مؤقت'),
+                                ),
+                              ),
+                            if (_offlineStatus.voskInstalled)
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.red,
+                                ),
+                                onPressed: () async {
+                                  await voice.deleteVoskModel();
+                                  await _refreshOfflineStatus();
+                                },
+                                icon: const Icon(Icons.delete_outline, size: 18),
+                                label: Text(
+                                  context.tr('Delete Model', 'حذف النموذج'),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           const Divider(),

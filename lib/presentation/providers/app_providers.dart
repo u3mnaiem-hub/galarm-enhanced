@@ -55,4 +55,4 @@ final defaultRingtoneNameProvider = StateProvider<String>((ref) => '');
 final currentUserIdProvider = StateProvider<String>((ref) => 'local_user');
 final currentUserNameProvider = StateProvider<String>((ref) => 'Me');
 final skipVoiceConfirmationProvider = StateProvider<bool>((ref) => false);
-final geminiApiKeyProvider = StateProvider<String>((ref) => '');
+final offlineVoiceModeProvider = StateProvider<bool>((ref) => false);

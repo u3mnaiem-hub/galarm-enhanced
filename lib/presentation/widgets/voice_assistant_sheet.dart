@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -6,8 +7,8 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../data/platform/native_voice_channel.dart';
 import '../../domain/entities/alarm.dart';
-import '../../domain/services/gemini_voice_parser.dart';
 import '../../domain/services/voice_alarm_parser.dart';
+import '../../domain/services/voice_engine_selector.dart';
 import '../../l10n/tr.dart';
 import '../providers/app_providers.dart';
 import '../screens/alarm_editor_screen.dart';
@@ -15,7 +16,6 @@ import '../screens/alarm_editor_screen.dart';
 enum _VoicePhase {
   idle,
   listening,
-  parsing,
   awaitingClarification,
   awaitingConfirmation,
   saved,
@@ -35,9 +35,16 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
 
   StreamSubscription<VoiceEvent>? _sub;
   late final AnimationController _pulseCtrl;
+  final TextEditingController _textFallbackCtrl = TextEditingController();
 
   _VoicePhase _phase = _VoicePhase.idle;
   String _language = 'ar-EG';
+
+  // Engine state
+  VoiceEngineChoice _activeEngine = VoiceEngineChoice.onlineAndroid;
+  OfflineVoiceStatus _offlineStatus = const OfflineVoiceStatus();
+  String? _engineNotice;
+  bool _showTextFallback = false;
 
   // Live transcript accumulation across retries
   String _accumulatedText = '';
@@ -67,6 +74,18 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
     return parts.join(' ').trim();
   }
 
+  String _engineCode(VoiceEngineChoice choice) {
+    switch (choice) {
+      case VoiceEngineChoice.onDeviceAndroid:
+        return 'on_device';
+      case VoiceEngineChoice.voskOffline:
+        return 'vosk';
+      case VoiceEngineChoice.onlineAndroid:
+      case VoiceEngineChoice.textFallback:
+        return 'online';
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -85,10 +104,20 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
     _ttsFallbackTimer?.cancel();
     _sub?.cancel();
     _pulseCtrl.dispose();
+    _textFallbackCtrl.dispose();
     final voice = ref.read(nativeVoiceChannelProvider);
     voice.cancelListening();
     voice.stopSpeaking();
     super.dispose();
+  }
+
+  Future<bool> _checkHasInternet() async {
+    try {
+      final results = await Connectivity().checkConnectivity();
+      return results.any((r) => r != ConnectivityResult.none);
+    } catch (_) {
+      return true;
+    }
   }
 
   Future<void> _speakAndMaybeListen(
@@ -97,10 +126,11 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
   }) async {
     final voice = ref.read(nativeVoiceChannelProvider);
     _ttsFallbackTimer?.cancel();
-    _listenAfterTts = listenAfter;
+    final shouldListen =
+        listenAfter && _activeEngine != VoiceEngineChoice.textFallback;
+    _listenAfterTts = shouldListen;
     await voice.speak(text, language: _language);
-    if (listenAfter) {
-      // Fallback timer in case a device TTS engine doesn't fire onDone
+    if (shouldListen) {
       final estMs = (text.length * 75).clamp(2200, 6500);
       _ttsFallbackTimer = Timer(Duration(milliseconds: estMs), () {
         if (mounted && _listenAfterTts) {
@@ -115,13 +145,48 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
     final voice = ref.read(nativeVoiceChannelProvider);
     final hasPerm = await voice.hasRecordPermission();
     if (!hasPerm) {
-      setState(() {
-        _micPermissionDenied = true;
-        _phase = _VoicePhase.idle;
-        _statusMessage =
-            'يرجى منح صلاحية الميكروفون عشان أقدر أسمعك.';
-      });
       await voice.requestRecordPermission();
+      final recheck = await voice.hasRecordPermission();
+      if (!recheck && mounted) {
+        setState(() {
+          _micPermissionDenied = true;
+          _activeEngine = VoiceEngineChoice.textFallback;
+          _showTextFallback = true;
+          _phase = _VoicePhase.idle;
+          _statusMessage =
+              'صلاحية الميكروفون غير مفعلة. يمكنك منح الصلاحية أو كتابة المنبه مباشرة بالأسفل.';
+        });
+        return;
+      }
+    }
+
+    final offlineModeOn = ref.read(offlineVoiceModeProvider);
+    final hasInternet = await _checkHasInternet();
+    final status = await voice.getOfflineStatus(language: _language);
+    _offlineStatus = status;
+
+    final selection = VoiceEngineSelector.select(
+      offlineModeEnabled: offlineModeOn,
+      hasInternet: hasInternet,
+      hasMicPermission: true,
+      isOnlineRecognizerAvailable: status.onlineAvailable,
+      isOnDeviceAndroidReady: status.isOnDeviceReady,
+      isVoskModelInstalled: status.voskInstalled,
+    );
+
+    if (!mounted) return;
+
+    _activeEngine = selection.engine;
+    _engineNotice = selection.arabicNotice;
+
+    if (selection.engine == VoiceEngineChoice.textFallback) {
+      setState(() {
+        _micPermissionDenied = false;
+        _showTextFallback = true;
+        _phase = _VoicePhase.idle;
+        _statusMessage = selection.arabicNotice ??
+            'التعرف الصوتي غير متاح حالياً. اكتب المنبه بالأسفل.';
+      });
       return;
     }
 
@@ -138,13 +203,17 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
         _retryCount = 0;
       }
       _phase = _VoicePhase.listening;
-      if (_phase == _VoicePhase.listening && _draftTitle == null) {
-        _statusMessage =
-            _language == 'ar-EG' ? 'جاري الاستماع... اتكلم براحتك' : 'Listening...';
+      if (_draftTitle == null) {
+        _statusMessage = _language == 'ar-EG'
+            ? 'جاري الاستماع... اتكلم براحتك'
+            : 'Listening...';
       }
     });
 
-    await voice.startListening(language: _language);
+    await voice.startListening(
+      language: _language,
+      engine: _engineCode(_activeEngine),
+    );
   }
 
   Future<void> _finishSpeakingManually() async {
@@ -152,7 +221,6 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
     _manualFinishRequested = true;
     await voice.stopListening();
 
-    // Give Android a brief window to deliver final onResults; if not, process what we have
     final snapshot = _fullLiveTranscript;
     await Future<void>.delayed(const Duration(milliseconds: 350));
     if (!mounted) return;
@@ -164,10 +232,43 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
       } else {
         setState(() {
           _phase = _VoicePhase.idle;
-          _statusMessage = 'لم أسمع كلاماً بعد. اضغط الميكروفون وحاول مرة أخرى.';
+          _statusMessage = 'لم أسمع كلاماً بعد. اضغط الميكروفون أو اكتب المنبه.';
         });
       }
     }
+  }
+
+  Future<bool> _tryFallbackOfflineEngineOnError() async {
+    if (_activeEngine == VoiceEngineChoice.onlineAndroid) {
+      if (_offlineStatus.isOnDeviceReady) {
+        _activeEngine = VoiceEngineChoice.onDeviceAndroid;
+        _engineNotice = 'تم التبديل تلقائياً إلى محرك أندرويد الأوفلاين';
+        await ref.read(nativeVoiceChannelProvider).startListening(
+              language: _language,
+              engine: 'on_device',
+            );
+        return true;
+      }
+      if (_offlineStatus.voskInstalled) {
+        _activeEngine = VoiceEngineChoice.voskOffline;
+        _engineNotice = 'تم التبديل تلقائياً إلى نموذج Vosk الأوفلاين';
+        await ref.read(nativeVoiceChannelProvider).startListening(
+              language: _language,
+              engine: 'vosk',
+            );
+        return true;
+      }
+    } else if (_activeEngine == VoiceEngineChoice.onDeviceAndroid &&
+        _offlineStatus.voskInstalled) {
+      _activeEngine = VoiceEngineChoice.voskOffline;
+      _engineNotice = 'تم التبديل تلقائياً إلى نموذج Vosk الأوفلاين';
+      await ref.read(nativeVoiceChannelProvider).startListening(
+            language: _language,
+            engine: 'vosk',
+          );
+      return true;
+    }
+    return false;
   }
 
   Future<void> _onVoiceEvent(VoiceEvent e) async {
@@ -180,6 +281,10 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
         await Future<void>.delayed(const Duration(milliseconds: 250));
         if (mounted) await _startListening(resetTranscript: true);
       }
+      return;
+    }
+
+    if (e.type == 'vosk_progress' || e.type == 'on_device_progress') {
       return;
     }
 
@@ -212,33 +317,42 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
       if (e.isPermissionError) {
         setState(() {
           _micPermissionDenied = true;
+          _showTextFallback = true;
           _phase = _VoicePhase.idle;
           _statusMessage =
-              'مفيش صلاحية للميكروفون. اسمح بالصلاحية من الإعدادات وحاول تاني.';
+              'مفيش صلاحية للميكروفون. اسمح بالصلاحية أو اكتب المنبه مباشرة بالأسفل.';
         });
         return;
       }
 
-      if (e.isNetworkError) {
-        // Keep whatever partial text was captured, otherwise show clear Arabic error
-        if (_fullLiveTranscript.isNotEmpty) {
-          await _handleFinalTranscript(_fullLiveTranscript);
-          return;
-        }
-        setState(() {
-          _phase = _VoicePhase.idle;
-          _statusMessage =
-              'لا يوجد اتصال بالإنترنت للتعرف الصوتي. تأكد من الاتصال وحاول مرة أخرى.';
-        });
-        return;
-      }
-
-      // Preserve any partial text collected before timeout/no-match
+      // Preserve any partial text collected before an error
       if (_currentPartial.trim().isNotEmpty) {
         _accumulatedText = _accumulatedText.isEmpty
             ? _currentPartial.trim()
             : '$_accumulatedText ${_currentPartial.trim()}'.trim();
         _currentPartial = '';
+      }
+
+      if (e.isNetworkError || e.isLanguagePackError) {
+        if (_accumulatedText.trim().isNotEmpty) {
+          await _handleFinalTranscript(_accumulatedText.trim());
+          return;
+        }
+        final switched = await _tryFallbackOfflineEngineOnError();
+        if (switched) {
+          setState(() {
+            _phase = _VoicePhase.listening;
+            _statusMessage = _engineNotice ?? 'جاري الاستماع أوفلاين...';
+          });
+          return;
+        }
+        setState(() {
+          _showTextFallback = true;
+          _phase = _VoicePhase.idle;
+          _statusMessage =
+              '${e.message ?? "تعذر التعرف الصوتي."}\nيمكنك كتابة المنبه مباشرة بالأسفل.';
+        });
+        return;
       }
 
       if (_manualFinishRequested) {
@@ -248,7 +362,7 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
         } else {
           setState(() {
             _phase = _VoicePhase.idle;
-            _statusMessage = 'لم أسمع كلاماً. اضغط الميكروفون للمحاولة مجدداً.';
+            _statusMessage = 'لم أسمع كلاماً. اضغط الميكروفون أو اكتب المنبه.';
           });
         }
         return;
@@ -262,14 +376,10 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
       }
 
       setState(() {
+        _showTextFallback = true;
         _phase = _VoicePhase.idle;
-        _statusMessage = e.message ?? 'حدث خطأ أثناء الاستماع، حاول مرة أخرى.';
+        _statusMessage = e.message ?? 'حدث خطأ أثناء الاستماع، يمكنك كتابة المنبه بالأسفل.';
       });
-      return;
-    }
-
-    if (e.type == 'end') {
-      // Wait briefly for onResults; if recognizer ended early with partial text and no result, handled by error/result
     }
   }
 
@@ -286,12 +396,12 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
       if (mounted) {
         await ref.read(nativeVoiceChannelProvider).startListening(
               language: _language,
+              engine: _engineCode(_activeEngine),
             );
       }
       return;
     }
 
-    // Retries exhausted: if we already captured text, process it!
     final combined = _accumulatedText.trim();
     if (combined.isNotEmpty) {
       await _handleFinalTranscript(combined);
@@ -303,11 +413,22 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
     }
   }
 
+  Future<void> _submitTextFallback() async {
+    final text = _textFallbackCtrl.text.trim();
+    if (text.isEmpty) return;
+    _textFallbackCtrl.clear();
+    setState(() {
+      _accumulatedText = text;
+      _currentPartial = '';
+    });
+    await _handleFinalTranscript(text);
+  }
+
   Future<void> _handleFinalTranscript(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
-    // 1. If we are waiting for user confirmation ("أيوه / تمام / احفظ" | "لا / غيّر" | "خليها ٨")
+    // 1. Confirmation reply handling ("أيوه / تمام / احفظ" | "لا / غيّر" | "خليها ٨")
     if (_draftDateTime != null &&
         (_phase == _VoicePhase.awaitingConfirmation ||
             (_phase == _VoicePhase.listening &&
@@ -346,7 +467,7 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
       }
     }
 
-    // 2. If we asked whether to move a passed today-time to tomorrow
+    // 2. Past-time confirmation ("الساعة عدت، تحب أظبطه بكره؟")
     if (_waitingForPastTimeTomorrowConfirm && _draftDateTime != null) {
       final reply = VoiceAlarmParser.parseConfirmationReply(trimmed);
       if (reply.type == VoiceReplyType.confirm) {
@@ -385,52 +506,18 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
       }
     }
 
-    // 3. Normal or clarification parsing (Gemini LLM first if configured, offline fallback always ready)
-    setState(() {
-      _phase = _VoicePhase.parsing;
-      _statusMessage = 'جاري الفهم...';
-    });
-
+    // 3. Rule-based Egyptian Arabic parser (100% offline, zero API keys)
     final now = DateTime.now();
-    var tzId = 'Africa/Cairo';
-    try {
-      tzId = await FlutterTimezone.getLocalTimezone();
-    } catch (_) {}
+    final intent = VoiceAlarmParser.parse(trimmed, nowLocal: now);
 
-    final apiKey = GeminiVoiceParser.resolveApiKey(
-      ref.read(geminiApiKeyProvider),
-    );
-
-    // Check quick non-create commands (delete / disable / snooze / done) first when no draft is active
-    final offlineIntent = VoiceAlarmParser.parse(trimmed, nowLocal: now);
     if (_draftTitle == null &&
-        offlineIntent.action != VoiceIntentAction.createAlarm &&
-        offlineIntent.action != VoiceIntentAction.unknown) {
-      await _executeNonCreateAction(offlineIntent);
+        intent.action != VoiceIntentAction.createAlarm &&
+        intent.action != VoiceIntentAction.unknown) {
+      await _executeNonCreateAction(intent);
       return;
     }
 
-    StructuredVoiceAlarmResult? structured;
-    bool fellBackDueToNetwork = false;
-
-    if (apiKey.isNotEmpty) {
-      final contextSummary = _draftTitle != null
-          ? 'Title so far: "$_draftTitle", DateTime so far: ${_draftDateTime?.toIso8601String() ?? "none"}'
-          : null;
-      final outcome = await GeminiVoiceParser.parseEgyptianArabic(
-        transcript: trimmed,
-        apiKey: apiKey,
-        nowLocal: now,
-        timezoneId: tzId,
-        previousContextSummary: contextSummary,
-      );
-      structured = outcome.result;
-      fellBackDueToNetwork = outcome.networkError;
-    }
-
-    // Fallback to our upgraded Egyptian Arabic offline parser
-    structured ??= offlineIntent.structured;
-
+    final structured = intent.structured;
     if (structured == null) {
       const msg = 'مفهمتش الأمر. جرب تقول: فكرني بكره الساعة ٧ الصبح اخد الدوا';
       setState(() {
@@ -441,7 +528,7 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
       return;
     }
 
-    // Merge with any pending draft (e.g., user first said "فكرني اشتري عيش", then answered "بكره الساعة ٨")
+    // Merge with any pending draft (e.g. user said "فكرني اشتري عيش" then answered "بكره الساعة ٨")
     if (structured.title.isNotEmpty &&
         structured.title != 'منبه صوتي' &&
         structured.title != 'Voice Alarm') {
@@ -455,8 +542,8 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
         dayOfMonth: structured.parsedLocalDateTime?.day,
       );
     }
-    if (offlineIntent.alarmType != AlarmType.personal) {
-      _draftType = offlineIntent.alarmType;
+    if (intent.alarmType != AlarmType.personal) {
+      _draftType = intent.alarmType;
     }
 
     final parsedDt = structured.parsedLocalDateTime;
@@ -464,7 +551,7 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
       _draftDateTime = parsedDt;
     }
 
-    // Clarification needed? Ask ONE short question at a time.
+    // Ask ONE short question in Arabic if time is missing or ambiguous
     if (structured.needsClarification || _draftDateTime == null) {
       final isPastToday = _draftDateTime != null && !_draftDateTime!.isAfter(now);
       _waitingForPastTimeTomorrowConfirm = isPastToday;
@@ -473,24 +560,21 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
           : 'تحب أفكرك امتى؟';
       setState(() {
         _phase = _VoicePhase.awaitingClarification;
-        _statusMessage = fellBackDueToNetwork
-            ? '$question\n(تم التحليل محلياً لعدم توفر الإنترنت)'
-            : question;
+        _statusMessage = question;
       });
       await _speakAndMaybeListen(question, listenAfter: true);
       return;
     }
 
-    // We have a complete draft! Either save directly (if skip confirmation is on) or read back for confirmation.
     final skipConfirm = ref.read(skipVoiceConfirmationProvider);
     if (skipConfirm) {
       await _saveConfirmedAlarm();
     } else {
-      await _presentConfirmation(fellBackDueToNetwork: fellBackDueToNetwork);
+      await _presentConfirmation();
     }
   }
 
-  Future<void> _presentConfirmation({bool fellBackDueToNetwork = false}) async {
+  Future<void> _presentConfirmation() async {
     final dt = _draftDateTime!;
     final title = _draftTitle ?? 'منبه صوتي';
     final confirmSpeech = VoiceAlarmParser.buildEgyptianConfirmationPrompt(
@@ -501,9 +585,7 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
 
     setState(() {
       _phase = _VoicePhase.awaitingConfirmation;
-      _statusMessage = fellBackDueToNetwork
-          ? '$confirmSpeech\n(تم التحليل محلياً بدون إنترنت)'
-          : confirmSpeech;
+      _statusMessage = confirmSpeech;
     });
 
     await _speakAndMaybeListen(confirmSpeech, listenAfter: true);
@@ -653,14 +735,15 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewPadding.bottom;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom +
+        MediaQuery.of(context).viewPadding.bottom;
     final cs = Theme.of(context).colorScheme;
     final isListening = _phase == _VoicePhase.listening;
     final liveText = _fullLiveTranscript;
 
     return SafeArea(
       top: false,
-      child: Padding(
+      child: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(20, 14, 20, 22 + bottomInset),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -690,17 +773,56 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
                     ),
                   ],
                 ),
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'ar-EG', label: Text('مصري')),
-                    ButtonSegment(value: 'en-US', label: Text('EN')),
+                Row(
+                  children: [
+                    IconButton(
+                      tooltip: context.tr('Type instead', 'كتابة الأمر'),
+                      icon: Icon(
+                        _showTextFallback
+                            ? Icons.keyboard_hide_outlined
+                            : Icons.keyboard_outlined,
+                      ),
+                      onPressed: () => setState(
+                        () => _showTextFallback = !_showTextFallback,
+                      ),
+                    ),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'ar-EG', label: Text('مصري')),
+                        ButtonSegment(value: 'en-US', label: Text('EN')),
+                      ],
+                      selected: {_language},
+                      onSelectionChanged: (s) =>
+                          setState(() => _language = s.first),
+                    ),
                   ],
-                  selected: {_language},
-                  onSelectionChanged: (s) => setState(() => _language = s.first),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+
+            if (_engineNotice != null && _engineNotice!.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: cs.secondaryContainer.withOpacity(0.55),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  _engineNotice!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSecondaryContainer,
+                  ),
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 10),
 
             // Live transcript box
             if (liveText.isNotEmpty)
@@ -798,7 +920,8 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
                             _resetDraft();
                             setState(() {
                               _phase = _VoicePhase.idle;
-                              _statusMessage = 'تم الإلغاء. اضغط الميكروفون للبدء من جديد.';
+                              _statusMessage =
+                                  'تم الإلغاء. اضغط الميكروفون أو اكتب للبدء من جديد.';
                             });
                           },
                           child: Text(context.tr('Cancel', 'إلغاء')),
@@ -812,23 +935,44 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
             ],
 
             // Status / prompt message
-            if (_phase == _VoicePhase.parsing)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 8),
-                child: CircularProgressIndicator(),
-              )
-            else
-              Text(
-                _statusMessage,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+            Text(
+              _statusMessage,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+
+            // Text-input fallback (shown automatically when speech is unavailable or toggled manually)
+            if (_showTextFallback) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _textFallbackCtrl,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _submitTextFallback(),
+                      decoration: InputDecoration(
+                        hintText: context.tr(
+                          'Type alarm (e.g. remind me tomorrow 7am medicine)',
+                          'اكتب المنبه هنا (مثلاً: فكرني بكره ٧ الصبح الدوا)',
+                        ),
+                      ),
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    onPressed: _submitTextFallback,
+                    icon: const Icon(Icons.send_rounded),
+                  ),
+                ],
               ),
+            ],
 
             const SizedBox(height: 16),
 
-            // Mic permission button if denied
+            // Controls: Mic + Manual "Done / تم" button while listening
             if (_micPermissionDenied)
               FilledButton.icon(
                 onPressed: () => _startListening(resetTranscript: true),
@@ -838,7 +982,6 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
                 ),
               )
             else
-              // Controls: Mic + Manual "Done / تم" button while listening
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [

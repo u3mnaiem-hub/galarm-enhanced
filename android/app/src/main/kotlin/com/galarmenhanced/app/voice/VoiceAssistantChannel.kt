@@ -4,10 +4,15 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
+import android.speech.ModelDownloadListener
 import android.speech.RecognitionListener
+import android.speech.RecognitionSupport
+import android.speech.RecognitionSupportCallback
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
@@ -21,18 +26,23 @@ import java.util.Locale
 
 /**
  * Native voice & TTS helper for U3m Alarm:
- * - Runs SpeechRecognizer strictly on the main thread with applicationContext
- * - Uses ar-EG locale with automatic fallback to ar
- * - Configurable silence timeouts in [VoiceConfig]
- * - Emits live partial results, error codes, and tts_done events
+ * - Online Android SpeechRecognizer (default when offline mode is OFF)
+ * - Engine A: Android On-Device SpeechRecognizer (API 31+, checkRecognitionSupport & triggerModelDownload on API 33+)
+ * - Engine B: Optional Vosk on-device Arabic model downloaded strictly on demand
+ * - Handles errors 11, 12, 13 and all standard speech errors with Arabic messages
  */
 class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnInitListener {
     private val appContext = activity.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
     private var speechRecognizer: SpeechRecognizer? = null
+    private var activeEngine: String = "online"
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var eventSink: EventChannel.EventSink? = null
+
+    private val voskEngine: VoskOfflineEngine by lazy {
+        VoskOfflineEngine(appContext) { payload -> emitEvent(payload) }
+    }
 
     fun register(flutterEngine: FlutterEngine) {
         try {
@@ -79,24 +89,58 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
                         )
                         result.success(true)
                     }
+                    "getOfflineStatus" -> {
+                        val lang = call.argument<String>("language") ?: DEFAULT_LOCALE
+                        queryOfflineStatus(lang, result)
+                    }
+                    "downloadOnDevicePack" -> {
+                        val lang = call.argument<String>("language") ?: DEFAULT_LOCALE
+                        triggerOnDevicePackDownload(lang, result)
+                    }
+                    "openSpeechSettings" -> {
+                        openSpeechSettings()
+                        result.success(true)
+                    }
+                    "downloadVoskModel" -> {
+                        val wifiOnly = call.argument<Boolean>("wifiOnly") ?: true
+                        voskEngine.downloadModel(wifiOnly = wifiOnly)
+                        result.success(true)
+                    }
+                    "cancelVoskDownload" -> {
+                        voskEngine.cancelDownload()
+                        result.success(true)
+                    }
+                    "deleteVoskModel" -> {
+                        val ok = voskEngine.deleteModel()
+                        result.success(ok)
+                    }
                     "startListening" -> {
                         val lang = call.argument<String>("language") ?: DEFAULT_LOCALE
-                        startListening(lang)
+                        val engine = call.argument<String>("engine") ?: "online"
+                        startListening(lang, engine)
                         result.success(true)
                     }
                     "stopListening" -> {
-                        // Graceful stop so recognizer can deliver any buffered result
                         mainHandler.post {
-                            try {
-                                speechRecognizer?.stopListening()
-                            } catch (_: Throwable) {
-                                destroyRecognizer()
+                            if (activeEngine == "vosk") {
+                                voskEngine.stopListening(emitFinalResult = true)
+                            } else {
+                                try {
+                                    speechRecognizer?.stopListening()
+                                } catch (_: Throwable) {
+                                    destroyRecognizer()
+                                }
                             }
                         }
                         result.success(true)
                     }
                     "cancelListening" -> {
-                        mainHandler.post { destroyRecognizer() }
+                        mainHandler.post {
+                            if (activeEngine == "vosk") {
+                                voskEngine.stopListening(emitFinalResult = false)
+                            }
+                            destroyRecognizer()
+                        }
                         result.success(true)
                     }
                     "speak" -> {
@@ -114,6 +158,242 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun queryOfflineStatus(languageCode: String, result: MethodChannel.Result) {
+        val voskMap = voskEngine.getStatusMap()
+        val apiLevel = Build.VERSION.SDK_INT
+        val onlineAvailable = try {
+            SpeechRecognizer.isRecognitionAvailable(appContext)
+        } catch (_: Throwable) {
+            false
+        }
+
+        if (apiLevel >= Build.VERSION_CODES.TIRAMISU) {
+            mainHandler.post {
+                try {
+                    if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext)) {
+                        result.success(
+                            mapOf(
+                                "apiLevel" to apiLevel,
+                                "onlineAvailable" to onlineAvailable,
+                                "onDeviceStatus" to "unsupported",
+                                "onDeviceSupported" to false,
+                                "vosk" to voskMap
+                            )
+                        )
+                        return@post
+                    }
+                    val tempRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(appContext)
+                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageCode.ifBlank { DEFAULT_LOCALE })
+                    }
+                    tempRecognizer.checkRecognitionSupport(
+                        intent,
+                        ContextCompat.getMainExecutor(appContext),
+                        object : RecognitionSupportCallback {
+                            override fun onSupportResult(recognitionSupport: RecognitionSupport) {
+                                try { tempRecognizer.destroy() } catch (_: Throwable) {}
+                                val installed = recognitionSupport.installedOnDeviceLanguages
+                                val supported = recognitionSupport.supportedOnDeviceLanguages
+                                val pending = recognitionSupport.pendingOnDeviceLanguages
+
+                                val hasArabicInstalled = installed.any {
+                                    it.equals(DEFAULT_LOCALE, ignoreCase = true) ||
+                                        it.startsWith("ar", ignoreCase = true)
+                                }
+                                val hasArabicPending = pending.any {
+                                    it.equals(DEFAULT_LOCALE, ignoreCase = true) ||
+                                        it.startsWith("ar", ignoreCase = true)
+                                }
+                                val hasArabicSupported = supported.any {
+                                    it.equals(DEFAULT_LOCALE, ignoreCase = true) ||
+                                        it.startsWith("ar", ignoreCase = true)
+                                }
+
+                                val status = when {
+                                    hasArabicInstalled -> "ready"
+                                    hasArabicPending -> "downloading"
+                                    hasArabicSupported -> "not_installed"
+                                    else -> "unsupported"
+                                }
+                                result.success(
+                                    mapOf(
+                                        "apiLevel" to apiLevel,
+                                        "onlineAvailable" to onlineAvailable,
+                                        "onDeviceStatus" to status,
+                                        "onDeviceSupported" to (status != "unsupported"),
+                                        "vosk" to voskMap
+                                    )
+                                )
+                            }
+
+                            override fun onError(error: Int) {
+                                try { tempRecognizer.destroy() } catch (_: Throwable) {}
+                                result.success(
+                                    mapOf(
+                                        "apiLevel" to apiLevel,
+                                        "onlineAvailable" to onlineAvailable,
+                                        "onDeviceStatus" to "unsupported",
+                                        "onDeviceSupported" to false,
+                                        "vosk" to voskMap
+                                    )
+                                )
+                            }
+                        }
+                    )
+                } catch (_: Throwable) {
+                    result.success(
+                        mapOf(
+                            "apiLevel" to apiLevel,
+                            "onlineAvailable" to onlineAvailable,
+                            "onDeviceStatus" to "unsupported",
+                            "onDeviceSupported" to false,
+                            "vosk" to voskMap
+                        )
+                    )
+                }
+            }
+        } else if (apiLevel >= Build.VERSION_CODES.S) {
+            val available = try {
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext)
+            } catch (_: Throwable) {
+                false
+            }
+            result.success(
+                mapOf(
+                    "apiLevel" to apiLevel,
+                    "onlineAvailable" to onlineAvailable,
+                    "onDeviceStatus" to if (available) "ready" else "unsupported",
+                    "onDeviceSupported" to available,
+                    "vosk" to voskMap
+                )
+            )
+        } else {
+            result.success(
+                mapOf(
+                    "apiLevel" to apiLevel,
+                    "onlineAvailable" to onlineAvailable,
+                    "onDeviceStatus" to "unsupported",
+                    "onDeviceSupported" to false,
+                    "vosk" to voskMap
+                )
+            )
+        }
+    }
+
+    private fun triggerOnDevicePackDownload(languageCode: String, result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            openSpeechSettings()
+            result.success("opened_settings")
+            return
+        }
+
+        mainHandler.post {
+            try {
+                if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext)) {
+                    openSpeechSettings()
+                    result.success("opened_settings")
+                    return@post
+                }
+                val tempRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(appContext)
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageCode.ifBlank { DEFAULT_LOCALE })
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    tempRecognizer.triggerModelDownload(
+                        intent,
+                        ContextCompat.getMainExecutor(appContext),
+                        object : ModelDownloadListener {
+                            override fun onProgress(completedPercent: Int) {
+                                emitEvent(
+                                    mapOf(
+                                        "type" to "on_device_progress",
+                                        "phase" to "downloading",
+                                        "percent" to completedPercent,
+                                        "message" to "جاري تحميل حزمة العربية... $completedPercent%"
+                                    )
+                                )
+                            }
+
+                            override fun onSuccess() {
+                                try { tempRecognizer.destroy() } catch (_: Throwable) {}
+                                emitEvent(
+                                    mapOf(
+                                        "type" to "on_device_progress",
+                                        "phase" to "ready",
+                                        "percent" to 100,
+                                        "message" to "حزمة العربية جاهزة للعمل بدون إنترنت"
+                                    )
+                                )
+                            }
+
+                            override fun onScheduled() {
+                                emitEvent(
+                                    mapOf(
+                                        "type" to "on_device_progress",
+                                        "phase" to "downloading",
+                                        "percent" to 0,
+                                        "message" to "تم جدولة تحميل حزمة العربية في الخلفية"
+                                    )
+                                )
+                            }
+
+                            override fun onError(error: Int) {
+                                try { tempRecognizer.destroy() } catch (_: Throwable) {}
+                                emitEvent(
+                                    mapOf(
+                                        "type" to "on_device_progress",
+                                        "phase" to "error",
+                                        "percent" to 0,
+                                        "message" to mapSpeechErrorToArabic(error)
+                                    )
+                                )
+                            }
+                        }
+                    )
+                    result.success("started")
+                } else {
+                    tempRecognizer.triggerModelDownload(intent)
+                    mainHandler.postDelayed({
+                        try { tempRecognizer.destroy() } catch (_: Throwable) {}
+                    }, 3000L)
+                    emitEvent(
+                        mapOf(
+                            "type" to "on_device_progress",
+                            "phase" to "downloading",
+                            "percent" to 0,
+                            "message" to "بدأ تحميل حزمة العربية في الخلفية"
+                        )
+                    )
+                    result.success("scheduled")
+                }
+            } catch (_: Throwable) {
+                openSpeechSettings()
+                result.success("opened_settings")
+            }
+        }
+    }
+
+    private fun openSpeechSettings() {
+        mainHandler.post {
+            try {
+                val intent = Intent("android.settings.VOICE_INPUT_SETTINGS").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                activity.startActivity(intent)
+            } catch (_: Throwable) {
+                try {
+                    val fallback = Intent(Settings.ACTION_SETTINGS).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    activity.startActivity(fallback)
+                } catch (_: Throwable) {}
+            }
+        }
     }
 
     override fun onInit(status: Int) {
@@ -182,7 +462,25 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
         }
     }
 
-    private fun startListening(languageCode: String) {
+    private fun mapSpeechErrorToArabic(error: Int): String {
+        return when (error) {
+            SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
+            SpeechRecognizer.ERROR_NETWORK -> "لا يوجد اتصال بالإنترنت للتعرف الصوتي"
+            SpeechRecognizer.ERROR_AUDIO -> "خطأ في تسجيل الصوت من الميكروفون"
+            SpeechRecognizer.ERROR_SERVER -> "حدث خطأ في خادم التعرف الصوتي، حاول مرة أخرى"
+            SpeechRecognizer.ERROR_CLIENT -> "تعذر تشغيل محرك التعرف الصوتي"
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "انتهى وقت الانتظار دون صوت"
+            SpeechRecognizer.ERROR_NO_MATCH -> "لم أسمع كلاماً واضحاً، حاول مرة أخرى"
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "الميكروفون مشغول حالياً، حاول مرة أخرى"
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "يرجى منح صلاحية الميكروفون"
+            11 -> "انقطع الاتصال بخدمة التعرف الصوتي، حاول مرة أخرى"
+            12 -> "اللغة العربية غير مدعومة في هذا المحرك، جرب تحميل حزمة الأوفلاين"
+            13 -> "حزمة اللغة العربية غير مثبّتة للعمل بدون إنترنت، يرجى تحميلها من الإعدادات"
+            else -> "تعذر التعرف على الصوت (رمز $error)"
+        }
+    }
+
+    private fun startListening(languageCode: String, engine: String) {
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -196,22 +494,38 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
             return
         }
 
+        activeEngine = engine
+
+        if (engine == "vosk") {
+            mainHandler.post { destroyRecognizer() }
+            voskEngine.startListening(COMPLETE_SILENCE_LENGTH_MILLIS)
+            return
+        }
+
         mainHandler.post {
             try {
-                if (!SpeechRecognizer.isRecognitionAvailable(appContext)) {
-                    emitEvent(
-                        mapOf(
-                            "type" to "error",
-                            "code" to SpeechRecognizer.ERROR_CLIENT,
-                            "message" to "التعرف الصوتي غير متاح على هذا الجهاز"
-                        )
-                    )
-                    return@post
-                }
-
+                voskEngine.stopListening(emitFinalResult = false)
                 destroyRecognizer()
 
-                val recognizer = SpeechRecognizer.createSpeechRecognizer(appContext)
+                val recognizer: SpeechRecognizer = if (engine == "on_device" &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                    SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext)
+                ) {
+                    SpeechRecognizer.createOnDeviceSpeechRecognizer(appContext)
+                } else {
+                    if (!SpeechRecognizer.isRecognitionAvailable(appContext)) {
+                        emitEvent(
+                            mapOf(
+                                "type" to "error",
+                                "code" to SpeechRecognizer.ERROR_CLIENT,
+                                "message" to "التعرف الصوتي غير متاح على هذا الجهاز"
+                            )
+                        )
+                        return@post
+                    }
+                    SpeechRecognizer.createSpeechRecognizer(appContext)
+                }
+
                 speechRecognizer = recognizer
 
                 recognizer.setRecognitionListener(object : RecognitionListener {
@@ -228,17 +542,13 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
                     }
 
                     override fun onError(error: Int) {
-                        val message = when (error) {
-                            SpeechRecognizer.ERROR_NO_MATCH -> "لم أسمع كلاماً واضحاً، حاول مرة أخرى"
-                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "انتهى وقت الانتظار دون صوت"
-                            SpeechRecognizer.ERROR_AUDIO -> "خطأ في تسجيل الصوت من الميكروفون"
-                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "يرجى منح صلاحية الميكروفون"
-                            SpeechRecognizer.ERROR_NETWORK,
-                            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "لا يوجد اتصال بالإنترنت للتعرف الصوتي"
-                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "الميكروفون مشغول حالياً، حاول مرة أخرى"
-                            else -> "تعذر التعرف على الصوت (رمز $error)"
-                        }
-                        emitEvent(mapOf("type" to "error", "code" to error, "message" to message))
+                        emitEvent(
+                            mapOf(
+                                "type" to "error",
+                                "code" to error,
+                                "message" to mapSpeechErrorToArabic(error)
+                            )
+                        )
                     }
 
                     override fun onResults(results: Bundle?) {
@@ -273,10 +583,12 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, lang)
-                    // Allow fallback to generic Arabic ("ar") if ar-EG pack isn't installed
                     putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                    if (engine == "on_device") {
+                        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                    }
                     putExtra(
                         RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
                         COMPLETE_SILENCE_LENGTH_MILLIS
@@ -315,6 +627,7 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
 
     fun dispose() {
         mainHandler.post { destroyRecognizer() }
+        voskEngine.dispose()
         try {
             tts?.stop()
             tts?.shutdown()

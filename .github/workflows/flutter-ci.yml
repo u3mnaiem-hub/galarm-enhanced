@@ -41,7 +41,7 @@ jobs:
             sed -i 's/minSdk = .*/minSdk = 26/g' android/app/build.gradle
             sed -i 's/compileSdk = .*/compileSdk = 35/g' android/app/build.gradle
             sed -i 's/targetSdk = .*/targetSdk = 35/g' android/app/build.gradle
-            printf '\nandroid {\n    compileOptions {\n        coreLibraryDesugaringEnabled true\n    }\n}\n\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"\n}\n' >> android/app/build.gradle
+            printf '\nandroid {\n    compileOptions {\n        coreLibraryDesugaringEnabled true\n    }\n}\n\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"\n    implementation "com.alphacephei:vosk-android:0.3.75"\n}\n' >> android/app/build.gradle
           fi
           if [ -f android/settings.gradle ]; then
             sed -i 's/id "com.android.application" version "[^"]*"/id "com.android.application" version "8.5.2"/g' android/settings.gradle
@@ -55,6 +55,10 @@ jobs:
         run: |
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
+
+      - name: Run Unit Tests
+        run: |
+          flutter test test/voice_alarm_parser_test.dart test/voice_engine_selector_test.dart test/recurrence_calculator_test.dart
 
       - name: Build Release APK
         run: |

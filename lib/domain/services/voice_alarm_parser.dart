@@ -31,7 +31,7 @@ class VoiceConfirmationReply {
   });
 }
 
-/// Structured output schema shared by both the Gemini LLM parser and the offline fallback parser.
+/// Structured output produced by the rule-based Egyptian Arabic voice parser.
 class StructuredVoiceAlarmResult {
   final String title;
   final String? datetime; // ISO-8601 local/offset string or null if clarification needed
@@ -232,6 +232,34 @@ class VoiceAlarmParser {
     return sb.toString();
   }
 
+  /// Full Arabic normalization run before rule-based matching:
+  /// - Removes diacritics (tashkeel) and tatweel
+  /// - Unifies أ/إ/آ -> ا, ى -> ي, ة -> ه
+  /// - Normalizes Arabic-Indic digits to 0-9
+  /// - Normalizes whitespace and common Egyptian spelling variants
+  static String normalizeArabic(String input) {
+    var s = normalizeDigits(input);
+    // Remove diacritics & tatweel
+    s = s.replaceAll(RegExp(r'[\u064B-\u065F\u0670\u0640]'), '');
+    // Unify Alef, Ya, Ta Marbuta
+    s = s
+        .replaceAll('أ', 'ا')
+        .replaceAll('إ', 'ا')
+        .replaceAll('آ', 'ا')
+        .replaceAll('ى', 'ي')
+        .replaceAll('ة', 'ه');
+    // Normalize common Egyptian spelling variants
+    s = s
+        .replaceAll('بكرا', 'بكره')
+        .replaceAll('الظهر', 'الضهر')
+        .replaceAll('العشاء', 'العشا')
+        .replaceAll('دقائق', 'دقايق')
+        .replaceAll('ثلث', 'تلت')
+        .replaceAll('نصف', 'نص');
+    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return s;
+  }
+
   /// Replaces common Egyptian/Arabic number words with digits for time/duration parsing.
   static String _replaceArabicNumberWords(String input) {
     var s = input;
@@ -269,7 +297,7 @@ class VoiceAlarmParser {
     DateTime? nowLocal,
   }) {
     final now = nowLocal ?? DateTime.now();
-    final norm = normalizeDigits(rawText).trim();
+    final norm = normalizeArabic(rawText);
     final lower = norm.toLowerCase();
 
     // 1. Check if the user is giving a modified time (e.g. "خليها ٨", "خليه ٨ ونص", "لا خليها ٩ بالليل")
@@ -405,14 +433,15 @@ class VoiceAlarmParser {
       return VoiceAlarmIntent(action: VoiceIntentAction.unknown, rawText: rawText);
     }
 
-    final normalized = normalizeDigits(trimmed);
+    final digitsNormalized = normalizeDigits(trimmed);
+    final normalized = normalizeArabic(trimmed);
     final lower = normalized.toLowerCase();
     final hasCreateTrigger = _containsAny(lower, _createTriggers);
 
     // Non-create commands only when NOT explicitly creating a reminder/alarm
     if (!hasCreateTrigger) {
       // 1. Snooze intent
-      if (_containsAny(lower, ['غفوة', 'أجل', 'اجل', 'snooze'])) {
+      if (_containsAny(lower, ['غفوه', 'غفوة', 'اجل', 'snooze'])) {
         final mins = _extractFirstInt(_replaceArabicNumberWords(lower)) ?? 5;
         return VoiceAlarmIntent(
           action: VoiceIntentAction.snoozeAlarm,
@@ -432,25 +461,22 @@ class VoiceAlarmParser {
       // 3. Disable / Delete intent
       if (_containsAny(lower, [
         'اقفل المنبه',
-        'أقفل المنبه',
         'اقفل منبه',
-        'أقفل منبه',
         'عطل',
         'ايقاف',
-        'إيقاف',
         'disable',
         'turn off',
       ])) {
         return VoiceAlarmIntent(
           action: VoiceIntentAction.disableAlarm,
-          title: _extractTargetQuery(normalized),
+          title: _extractTargetQuery(digitsNormalized),
           rawText: rawText,
         );
       }
-      if (_containsAny(lower, ['امسح', 'احذف', 'الغي', 'ألغي', 'delete', 'remove', 'cancel'])) {
+      if (_containsAny(lower, ['امسح', 'احذف', 'الغي', 'delete', 'remove', 'cancel'])) {
         return VoiceAlarmIntent(
           action: VoiceIntentAction.deleteAlarm,
-          title: _extractTargetQuery(normalized),
+          title: _extractTargetQuery(digitsNormalized),
           rawText: rawText,
         );
       }
@@ -460,7 +486,7 @@ class VoiceAlarmParser {
     final relativeDuration = _extractRelativeDuration(lower);
     if (relativeDuration != null) {
       final dt = now.add(relativeDuration);
-      final title = _extractCreateTitle(normalized);
+      final title = _extractCreateTitle(digitsNormalized);
       final finalTitle = title.isEmpty ? 'منبه صوتي' : title;
       final structured = StructuredVoiceAlarmResult(
         title: finalTitle,
@@ -500,7 +526,7 @@ class VoiceAlarmParser {
         explicitDate != null ||
         repeatFreq != RepeatFrequency.none ||
         hasCreateTrigger) {
-      final title = _extractCreateTitle(normalized);
+      final title = _extractCreateTitle(digitsNormalized);
       final finalTitle = title.isEmpty ? 'منبه صوتي' : title;
       final alarmType = _detectAlarmType(lower);
 
