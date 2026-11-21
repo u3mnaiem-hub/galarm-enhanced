@@ -174,13 +174,19 @@ class AlarmRepository {
       await _db.upsertNotification(
         NotificationsTableCompanion(
           id: Value('done_${alarm.id}_${nowUtc.millisecondsSinceEpoch}'),
-          title: alarm.type == AlarmType.buddy
-              ? 'Buddy Alarm Done • ${alarm.title}'
-              : 'Group Alarm Done • ${alarm.title}',
-          body: alarm.participants.isNotEmpty
-              ? 'Updated for: ${alarm.participants.map((p) => p.displayName).join(", ")}'
-              : 'Marked as completed.',
-          kind: alarm.type == AlarmType.buddy ? 'buddy_done' : 'group_change',
+          title: Value(
+            alarm.type == AlarmType.buddy
+                ? 'Buddy Alarm Done • ${alarm.title}'
+                : 'Group Alarm Done • ${alarm.title}',
+          ),
+          body: Value(
+            alarm.participants.isNotEmpty
+                ? 'Updated for: ${alarm.participants.map((p) => p.displayName).join(", ")}'
+                : 'Marked as completed.',
+          ),
+          kind: Value(
+            alarm.type == AlarmType.buddy ? 'buddy_done' : 'group_change',
+          ),
           alarmId: Value(alarm.id),
           createdAtUtc: Value(nowUtc),
           isRead: const Value(false),
@@ -243,13 +249,19 @@ class AlarmRepository {
       await _db.upsertNotification(
         NotificationsTableCompanion(
           id: Value('missed_${alarm.id}_${nowUtc.millisecondsSinceEpoch}'),
-          title: alarm.type == AlarmType.buddy
-              ? 'Buddy Alarm Missed • ${alarm.title}'
-              : 'Group Alarm Missed • ${alarm.title}',
-          body: alarm.participants.isNotEmpty
-              ? 'Participants notified: ${alarm.participants.map((p) => p.displayName).join(", ")}'
-              : 'Alarm was missed.',
-          kind: alarm.type == AlarmType.buddy ? 'buddy_missed' : 'group_change',
+          title: Value(
+            alarm.type == AlarmType.buddy
+                ? 'Buddy Alarm Missed • ${alarm.title}'
+                : 'Group Alarm Missed • ${alarm.title}',
+          ),
+          body: Value(
+            alarm.participants.isNotEmpty
+                ? 'Participants notified: ${alarm.participants.map((p) => p.displayName).join(", ")}'
+                : 'Alarm was missed.',
+          ),
+          kind: Value(
+            alarm.type == AlarmType.buddy ? 'buddy_missed' : 'group_change',
+          ),
           alarmId: Value(alarm.id),
           createdAtUtc: Value(nowUtc),
           isRead: const Value(false),
