@@ -44,9 +44,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final pages = [
       _IntroSlide(
         icon: Icons.alarm_on_rounded,
-        title: context.tr('Smart Personal Alarms', 'منبهات وتذكيرات شخصية ذكية'),
-        subtitle:
-            context.tr('Set personal alarms with custom repeat rules, voice assistant, and custom ringtones — 100% offline.', 'اضبط منبهاتك الشخصية مع تكرار مخصص ومساعد صوتي ونغمات مخصصة بدون إنترنت.'),
+        title: context.tr('Personal, Group & Buddy Alarms', 'منبهات شخصية ومجموعات وأصدقاء'),
+        subtitle: context.tr(
+          'Set flexible personal, group, and buddy alarms with custom repeat rules, voice assistant, and custom ringtones.',
+          'اضبط منبهاتك الشخصية ومنبهات المجموعات والأصدقاء مع تكرار مخصص ومساعد صوتي ونغمات مخصصة.',
+        ),
       ),
       _IntroSlide(
         icon: Icons.volume_up_rounded,

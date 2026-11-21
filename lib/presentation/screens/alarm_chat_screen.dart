@@ -53,6 +53,29 @@ class _AlarmChatScreenState extends ConsumerState<AlarmChatScreen> {
       appBar: AppBar(title: Text('${widget.alarm.title} • ${context.tr('Chat', 'محادثة')}')),
       body: Column(
         children: [
+          if (widget.alarm.participants.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.45),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: widget.alarm.participants
+                      .map(
+                        (p) => Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: Chip(
+                            avatar: const Icon(Icons.person, size: 15),
+                            label: Text(p.displayName, style: const TextStyle(fontSize: 11.5)),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ),
           Expanded(
             child: fs == null
                 ? Center(child: Text(context.tr('Connect Firebase to enable live chat.', 'اربط فايربيز لتفعيل المحادثة المباشرة.')))

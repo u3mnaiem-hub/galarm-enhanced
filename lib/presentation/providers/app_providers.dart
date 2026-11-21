@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/local/app_database.dart';
@@ -22,14 +23,15 @@ final nativeVoiceChannelProvider = Provider<NativeVoiceChannel>((ref) {
 });
 
 final firestoreServiceProvider = Provider<FirestoreService?>((ref) {
-  return null;
+  if (Firebase.apps.isEmpty) return null;
+  return FirestoreService();
 });
 
 final alarmRepositoryProvider = Provider<AlarmRepository>((ref) {
   return AlarmRepository(
     ref.watch(appDatabaseProvider),
     ref.watch(nativeAlarmChannelProvider),
-    null,
+    ref.watch(firestoreServiceProvider),
   );
 });
 
@@ -52,3 +54,5 @@ final defaultRingtoneUriProvider = StateProvider<String>((ref) => 'default');
 final defaultRingtoneNameProvider = StateProvider<String>((ref) => '');
 final currentUserIdProvider = StateProvider<String>((ref) => 'local_user');
 final currentUserNameProvider = StateProvider<String>((ref) => 'Me');
+final skipVoiceConfirmationProvider = StateProvider<bool>((ref) => false);
+final geminiApiKeyProvider = StateProvider<String>((ref) => '');

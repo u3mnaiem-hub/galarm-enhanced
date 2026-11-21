@@ -129,6 +129,9 @@ class AppDatabase extends _$AppDatabase {
   Future<void> upsertParticipant(AlarmParticipantsTableCompanion entry) =>
       into(alarmParticipantsTable).insertOnConflictUpdate(entry);
 
+  Future<void> deleteParticipantsForAlarm(String alarmId) =>
+      (delete(alarmParticipantsTable)..where((t) => t.alarmId.equals(alarmId))).go();
+
   Future<void> insertOccurrence(AlarmOccurrencesTableCompanion entry) =>
       into(alarmOccurrencesTable).insert(entry);
 

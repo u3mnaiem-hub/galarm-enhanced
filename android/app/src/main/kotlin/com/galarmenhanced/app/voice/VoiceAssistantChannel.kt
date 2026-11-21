@@ -11,6 +11,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.FlutterEngine
@@ -19,9 +20,11 @@ import io.flutter.plugin.common.MethodChannel
 import java.util.Locale
 
 /**
- * Native voice & sound helper modeled on Masrofy's proven VoiceInputModule:
- * runs SpeechRecognizer strictly on the main thread with applicationContext,
- * generous silence timeouts, Arabic error mapping, and safe TextToSpeech.
+ * Native voice & TTS helper for U3m Alarm:
+ * - Runs SpeechRecognizer strictly on the main thread with applicationContext
+ * - Uses ar-EG locale with automatic fallback to ar
+ * - Configurable silence timeouts in [VoiceConfig]
+ * - Emits live partial results, error codes, and tts_done events
  */
 class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnInitListener {
     private val appContext = activity.applicationContext
@@ -77,17 +80,28 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
                         result.success(true)
                     }
                     "startListening" -> {
-                        val lang = call.argument<String>("language") ?: "ar-EG"
+                        val lang = call.argument<String>("language") ?: DEFAULT_LOCALE
                         startListening(lang)
                         result.success(true)
                     }
                     "stopListening" -> {
+                        // Graceful stop so recognizer can deliver any buffered result
+                        mainHandler.post {
+                            try {
+                                speechRecognizer?.stopListening()
+                            } catch (_: Throwable) {
+                                destroyRecognizer()
+                            }
+                        }
+                        result.success(true)
+                    }
+                    "cancelListening" -> {
                         mainHandler.post { destroyRecognizer() }
                         result.success(true)
                     }
                     "speak" -> {
                         val text = call.argument<String>("text") ?: ""
-                        val lang = call.argument<String>("language") ?: "ar-EG"
+                        val lang = call.argument<String>("language") ?: DEFAULT_LOCALE
                         speak(text, lang)
                         result.success(true)
                     }
@@ -104,6 +118,23 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
 
     override fun onInit(status: Int) {
         ttsReady = status == TextToSpeech.SUCCESS
+        if (ttsReady) {
+            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {}
+                override fun onDone(utteranceId: String?) {
+                    emitEvent(mapOf("type" to "tts_done"))
+                }
+
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) {
+                    emitEvent(mapOf("type" to "tts_done"))
+                }
+
+                override fun onError(utteranceId: String?, errorCode: Int) {
+                    emitEvent(mapOf("type" to "tts_done"))
+                }
+            })
+        }
     }
 
     private fun emitEvent(payload: Map<String, Any>) {
@@ -114,17 +145,40 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
         }
     }
 
+    private fun resolveTtsLocale(languageTag: String): Locale {
+        val primary = Locale.forLanguageTag(languageTag.ifBlank { DEFAULT_LOCALE })
+        val res = tts?.isLanguageAvailable(primary) ?: TextToSpeech.LANG_NOT_SUPPORTED
+        if (res >= TextToSpeech.LANG_AVAILABLE) {
+            return primary
+        }
+        if (languageTag.startsWith("ar", ignoreCase = true)) {
+            val fallback = Locale(FALLBACK_LOCALE)
+            val fbRes = tts?.isLanguageAvailable(fallback) ?: TextToSpeech.LANG_NOT_SUPPORTED
+            if (fbRes >= TextToSpeech.LANG_AVAILABLE) {
+                return fallback
+            }
+        }
+        return primary
+    }
+
     private fun speak(text: String, languageTag: String) {
-        if (!ttsReady || text.isBlank()) return
+        if (!ttsReady || text.isBlank()) {
+            emitEvent(mapOf("type" to "tts_done"))
+            return
+        }
         try {
             tts?.stop()
-            val locale = Locale.forLanguageTag(languageTag.ifBlank { "ar-EG" })
+            val locale = resolveTtsLocale(languageTag)
             tts?.language = locale
             tts?.setSpeechRate(0.95f)
             tts?.setPitch(1.0f)
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "galarm_tts")
+            val params = Bundle()
+            val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "u3m_tts_${System.currentTimeMillis()}")
+            if (result != TextToSpeech.SUCCESS) {
+                emitEvent(mapOf("type" to "tts_done"))
+            }
         } catch (_: Throwable) {
-            // Ignore speech synthesis failures on devices without TTS engine
+            emitEvent(mapOf("type" to "tts_done"))
         }
     }
 
@@ -132,14 +186,26 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            emitEvent(mapOf("type" to "error", "message" to "يرجى منح صلاحية الميكروفون"))
+            emitEvent(
+                mapOf(
+                    "type" to "error",
+                    "code" to SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS,
+                    "message" to "يرجى منح صلاحية الميكروفون لاستخدام المساعد الصوتي"
+                )
+            )
             return
         }
 
         mainHandler.post {
             try {
                 if (!SpeechRecognizer.isRecognitionAvailable(appContext)) {
-                    emitEvent(mapOf("type" to "error", "message" to "التعرف الصوتي غير متاح على هذا الجهاز"))
+                    emitEvent(
+                        mapOf(
+                            "type" to "error",
+                            "code" to SpeechRecognizer.ERROR_CLIENT,
+                            "message" to "التعرف الصوتي غير متاح على هذا الجهاز"
+                        )
+                    )
                     return@post
                 }
 
@@ -163,12 +229,14 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
 
                     override fun onError(error: Int) {
                         val message = when (error) {
-                            SpeechRecognizer.ERROR_NO_MATCH -> "لم يتم التعرف على كلام واضح، حاول مرة أخرى"
-                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "انتهت مهلة الانتظار دون صوت"
-                            SpeechRecognizer.ERROR_AUDIO -> "خطأ في تسجيل الصوت"
+                            SpeechRecognizer.ERROR_NO_MATCH -> "لم أسمع كلاماً واضحاً، حاول مرة أخرى"
+                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "انتهى وقت الانتظار دون صوت"
+                            SpeechRecognizer.ERROR_AUDIO -> "خطأ في تسجيل الصوت من الميكروفون"
                             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "يرجى منح صلاحية الميكروفون"
-                            SpeechRecognizer.ERROR_NETWORK -> "خطأ في الشبكة أثناء التعرف الصوتي"
-                            else -> "خطأ في التعرف الصوتي ($error)"
+                            SpeechRecognizer.ERROR_NETWORK,
+                            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "لا يوجد اتصال بالإنترنت للتعرف الصوتي"
+                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "الميكروفون مشغول حالياً، حاول مرة أخرى"
+                            else -> "تعذر التعرف على الصوت (رمز $error)"
                         }
                         emitEvent(mapOf("type" to "error", "code" to error, "message" to message))
                     }
@@ -183,7 +251,7 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
                                 mapOf(
                                     "type" to "error",
                                     "code" to SpeechRecognizer.ERROR_NO_MATCH,
-                                    "message" to "لم يتم اكتشاف كلمات"
+                                    "message" to "لم يتم اكتشاف كلمات واضحة"
                                 )
                             )
                         }
@@ -200,20 +268,37 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
                     override fun onEvent(eventType: Int, params: Bundle?) {}
                 })
 
-                val lang = languageCode.ifBlank { "ar-EG" }
+                val lang = languageCode.ifBlank { DEFAULT_LOCALE }
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, lang)
+                    // Allow fallback to generic Arabic ("ar") if ar-EG pack isn't installed
+                    putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 7000L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 5000L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 8000L)
+                    putExtra(
+                        RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
+                        COMPLETE_SILENCE_LENGTH_MILLIS
+                    )
+                    putExtra(
+                        RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                        POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS
+                    )
+                    putExtra(
+                        RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS,
+                        MINIMUM_SPEECH_LENGTH_MILLIS
+                    )
                 }
                 recognizer.startListening(intent)
             } catch (e: Throwable) {
-                emitEvent(mapOf("type" to "error", "message" to (e.message ?: "تعذر بدء التعرف الصوتي")))
+                emitEvent(
+                    mapOf(
+                        "type" to "error",
+                        "code" to SpeechRecognizer.ERROR_CLIENT,
+                        "message" to (e.message ?: "تعذر بدء التعرف الصوتي")
+                    )
+                )
             }
         }
     }
@@ -238,5 +323,12 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
 
     companion object {
         private const val REQ_RECORD_AUDIO = 4102
+
+        // Speech recognition & TTS tuning constants (edit in one place)
+        const val DEFAULT_LOCALE = "ar-EG"
+        const val FALLBACK_LOCALE = "ar"
+        const val COMPLETE_SILENCE_LENGTH_MILLIS = 3500L
+        const val POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS = 3000L
+        const val MINIMUM_SPEECH_LENGTH_MILLIS = 5000L
     }
 }

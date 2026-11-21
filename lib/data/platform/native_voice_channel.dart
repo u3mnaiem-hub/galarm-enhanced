@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 
 class VoiceEvent {
-  final String type; // ready, partial, result, error, end
+  final String type; // ready, partial, result, error, end, tts_done
   final String? text;
   final String? message;
   final int? code;
@@ -12,6 +12,23 @@ class VoiceEvent {
     this.message,
     this.code,
   });
+
+  // Android SpeechRecognizer error codes
+  static const int errorNetworkTimeout = 1;
+  static const int errorNetwork = 2;
+  static const int errorAudio = 3;
+  static const int errorSpeechTimeout = 6;
+  static const int errorNoMatch = 7;
+  static const int errorRecognizerBusy = 8;
+  static const int errorInsufficientPermissions = 9;
+
+  bool get isRecoverableSilenceError =>
+      code == errorNoMatch || code == errorSpeechTimeout;
+
+  bool get isNetworkError =>
+      code == errorNetwork || code == errorNetworkTimeout;
+
+  bool get isPermissionError => code == errorInsufficientPermissions;
 
   factory VoiceEvent.fromMap(Map<dynamic, dynamic> map) {
     return VoiceEvent(
@@ -47,8 +64,14 @@ class NativeVoiceChannel {
     await _method.invokeMethod('startListening', {'language': language});
   }
 
+  /// Gracefully stops listening so Android can finalize any buffered speech.
   Future<void> stopListening() async {
     await _method.invokeMethod('stopListening');
+  }
+
+  /// Immediately cancels and destroys the active recognizer.
+  Future<void> cancelListening() async {
+    await _method.invokeMethod('cancelListening');
   }
 
   Future<void> speak(String text, {String language = 'ar-EG'}) async {

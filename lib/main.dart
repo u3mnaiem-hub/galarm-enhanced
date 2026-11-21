@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -11,6 +12,11 @@ import 'presentation/theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Firebase.initializeApp();
+  } catch (_) {
+    // Runs seamlessly in offline mode if Firebase is not configured
+  }
   tz_data.initializeTimeZones();
   await initializeDateFormatting();
 
@@ -19,6 +25,8 @@ Future<void> main() async {
   final savedDefaultRingtoneUri = prefs.getString('default_ringtone_uri') ?? 'default';
   final savedDefaultRingtoneName = prefs.getString('default_ringtone_name') ?? '';
   final savedUse24h = prefs.getBool('use_24h_format') ?? false;
+  final savedSkipVoiceConfirm = prefs.getBool('skip_voice_confirmation') ?? false;
+  final savedGeminiApiKey = prefs.getString('gemini_api_key') ?? '';
   final savedLocaleCode = prefs.getString('locale_code');
   final savedThemeStr = prefs.getString('theme_mode');
 
@@ -32,6 +40,8 @@ Future<void> main() async {
         defaultRingtoneUriProvider.overrideWith((ref) => savedDefaultRingtoneUri),
         defaultRingtoneNameProvider.overrideWith((ref) => savedDefaultRingtoneName),
         use24HourFormatProvider.overrideWith((ref) => savedUse24h),
+        skipVoiceConfirmationProvider.overrideWith((ref) => savedSkipVoiceConfirm),
+        geminiApiKeyProvider.overrideWith((ref) => savedGeminiApiKey),
         localeProvider.overrideWith(
           (ref) => (savedLocaleCode != null && savedLocaleCode.isNotEmpty)
               ? Locale(savedLocaleCode)

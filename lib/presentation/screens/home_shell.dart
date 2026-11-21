@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/app_providers.dart';
 import 'alarms_tab.dart';
+import 'contacts_groups_tab.dart';
 import 'notifications_tab.dart';
 import 'settings_tab.dart';
 import 'alarm_editor_screen.dart';
@@ -46,6 +47,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
 
   static const _pages = [
     AlarmsTab(),
+    ContactsGroupsTab(),
     NotificationsTab(),
     SettingsTab(),
   ];
@@ -93,6 +95,11 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
             icon: const Icon(Icons.alarm_outlined),
             selectedIcon: const Icon(Icons.alarm),
             label: context.tr('Alarms', 'المنبهات'),
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.groups_outlined),
+            selectedIcon: const Icon(Icons.groups),
+            label: context.tr('Groups', 'المجموعات'),
           ),
           NavigationDestination(
             icon: const Icon(Icons.notifications_outlined),

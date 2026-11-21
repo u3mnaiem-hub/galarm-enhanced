@@ -27,7 +27,6 @@ class AlarmRepository {
   Future<void> saveAlarm(Alarm alarm, {bool isOnline = false}) async {
     final nowUtc = DateTime.now().toUtc();
     final updated = alarm.copyWith(
-      type: AlarmType.personal,
       updatedAtUtc: nowUtc,
     );
 
@@ -57,13 +56,44 @@ class AlarmRepository {
       ),
     );
 
+    await _db.deleteParticipantsForAlarm(updated.id);
+    for (final p in updated.participants) {
+      await _db.upsertParticipant(
+        AlarmParticipantsTableCompanion(
+          alarmId: Value(updated.id),
+          uid: Value(p.uid),
+          displayName: Value(p.displayName),
+          photoUrl: Value(p.photoUrl),
+          timezoneId: Value(p.timezoneId),
+          status: Value(p.status.name),
+          updatedAtUtc: Value(p.updatedAtUtc ?? nowUtc),
+        ),
+      );
+    }
+
+    if (_remote != null && updated.type != AlarmType.personal) {
+      try {
+        await _remote!.syncAlarm(updated);
+      } catch (_) {
+        await _db.enqueueSync('alarm', updated.id, '{}');
+      }
+    }
+
     await _scheduleOrCancelNative(updated);
   }
 
   Future<void> deleteAlarm(String alarmId, {bool isOnline = false}) async {
     final nowUtc = DateTime.now().toUtc();
     await _db.softDeleteAlarm(alarmId, nowUtc);
+    await _db.deleteParticipantsForAlarm(alarmId);
     await _native.cancelAlarm(alarmId.hashCode, alarmId);
+    if (_remote != null) {
+      try {
+        await _remote!.deleteAlarm(alarmId);
+      } catch (_) {
+        await _db.enqueueSync('delete_alarm', alarmId, '{}');
+      }
+    }
   }
 
   Future<String> exportAlarmsBackupJson({
@@ -73,7 +103,8 @@ class AlarmRepository {
     final rows = await _db.getActiveAlarms();
     final alarms = <Map<String, dynamic>>[];
     for (final r in rows) {
-      final alarm = _mapRowToAlarm(r, const []);
+      final participantsRows = await _db.getParticipantsForAlarm(r.id);
+      final alarm = _mapRowToAlarm(r, participantsRows);
       alarms.add(alarm.toBackupMap());
     }
     final payload = <String, dynamic>{
@@ -139,6 +170,23 @@ class AlarmRepository {
       updatedAtUtc: nowUtc,
     );
     await saveAlarm(nextAlarm);
+    if (alarm.type == AlarmType.buddy || alarm.type == AlarmType.group) {
+      await _db.upsertNotification(
+        NotificationsTableCompanion(
+          id: Value('done_${alarm.id}_${nowUtc.millisecondsSinceEpoch}'),
+          title: alarm.type == AlarmType.buddy
+              ? 'Buddy Alarm Done • ${alarm.title}'
+              : 'Group Alarm Done • ${alarm.title}',
+          body: alarm.participants.isNotEmpty
+              ? 'Updated for: ${alarm.participants.map((p) => p.displayName).join(", ")}'
+              : 'Marked as completed.',
+          kind: alarm.type == AlarmType.buddy ? 'buddy_done' : 'group_change',
+          alarmId: Value(alarm.id),
+          createdAtUtc: Value(nowUtc),
+          isRead: const Value(false),
+        ),
+      );
+    }
     await _native.stopRinging();
   }
 
@@ -191,6 +239,23 @@ class AlarmRepository {
       updatedAtUtc: nowUtc,
     );
     await saveAlarm(nextAlarm);
+    if (alarm.type == AlarmType.buddy || alarm.type == AlarmType.group) {
+      await _db.upsertNotification(
+        NotificationsTableCompanion(
+          id: Value('missed_${alarm.id}_${nowUtc.millisecondsSinceEpoch}'),
+          title: alarm.type == AlarmType.buddy
+              ? 'Buddy Alarm Missed • ${alarm.title}'
+              : 'Group Alarm Missed • ${alarm.title}',
+          body: alarm.participants.isNotEmpty
+              ? 'Participants notified: ${alarm.participants.map((p) => p.displayName).join(", ")}'
+              : 'Alarm was missed.',
+          kind: alarm.type == AlarmType.buddy ? 'buddy_missed' : 'group_change',
+          alarmId: Value(alarm.id),
+          createdAtUtc: Value(nowUtc),
+          isRead: const Value(false),
+        ),
+      );
+    }
     await _native.stopRinging();
   }
 

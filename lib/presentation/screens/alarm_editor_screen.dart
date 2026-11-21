@@ -3,6 +3,7 @@ import '../../l10n/tr.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:path/path.dart' as p;
@@ -10,11 +11,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../domain/entities/alarm.dart';
 import '../providers/app_providers.dart';
+import '../theme/app_theme.dart';
 import 'custom_repeat_screen.dart';
 
 class AlarmEditorScreen extends ConsumerStatefulWidget {
   final Alarm? existing;
-  const AlarmEditorScreen({super.key, this.existing});
+  final AlarmType? initialType;
+  const AlarmEditorScreen({super.key, this.existing, this.initialType});
 
   @override
   ConsumerState<AlarmEditorScreen> createState() => _AlarmEditorScreenState();
@@ -45,6 +48,9 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
   late bool _gradualVolume;
   late bool _vibrate;
   late bool _ringOnVibrateSilent;
+
+  late AlarmType _alarmType;
+  late List<AlarmParticipant> _participants;
 
   final AudioPlayer _previewPlayer = AudioPlayer();
   bool _isPreviewing = false;
@@ -82,6 +88,9 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
     _gradualVolume = e?.gradualVolume ?? true;
     _vibrate = e?.vibrate ?? true;
     _ringOnVibrateSilent = e?.ringOnVibrateSilent ?? true;
+
+    _alarmType = e?.type ?? widget.initialType ?? AlarmType.personal;
+    _participants = [...(e?.participants ?? const <AlarmParticipant>[])];
   }
 
   @override
@@ -193,15 +202,135 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
       gradualVolume: _gradualVolume,
       vibrate: _vibrate,
       ringOnVibrateSilent: _ringOnVibrateSilent,
-      type: AlarmType.personal,
+      type: _alarmType,
       state: AlarmState.upcoming,
       isEnabled: true,
       updatedAtUtc: nowUtc,
-      participants: const [],
+      participants:
+          _alarmType == AlarmType.personal ? const [] : _participants,
     );
 
     await ref.read(alarmRepositoryProvider).saveAlarm(alarm);
     if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _addParticipantManually() async {
+    final nameCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    final added = await showDialog<AlarmParticipant>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          _alarmType == AlarmType.buddy
+              ? context.tr('Add Buddy', 'إضافة صديق')
+              : context.tr('Add Group Member', 'إضافة عضو للمجموعة'),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: context.tr('Name', 'الاسم'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              textDirection: TextDirection.ltr,
+              decoration: InputDecoration(
+                labelText: context.tr('Phone (optional)', 'رقم الهاتف (اختياري)'),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(context.tr('Cancel', 'إلغاء')),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = nameCtrl.text.trim();
+              if (name.isEmpty) return;
+              final phone = phoneCtrl.text.trim();
+              Navigator.of(ctx).pop(
+                AlarmParticipant(
+                  uid: phone.isNotEmpty
+                      ? 'phone_${phone.replaceAll(RegExp(r'\s+'), '')}'
+                      : const Uuid().v4(),
+                  displayName: phone.isNotEmpty ? '$name ($phone)' : name,
+                  status: ParticipantStatus.pending,
+                  updatedAtUtc: DateTime.now().toUtc(),
+                ),
+              );
+            },
+            child: Text(context.tr('Add', 'إضافة')),
+          ),
+        ],
+      ),
+    );
+    nameCtrl.dispose();
+    phoneCtrl.dispose();
+
+    if (added != null && mounted) {
+      setState(() {
+        if (_alarmType == AlarmType.buddy) {
+          _participants = [added];
+        } else if (!_participants.any((p) => p.uid == added.uid)) {
+          _participants.add(added);
+        }
+      });
+    }
+  }
+
+  Future<void> _pickParticipantFromContacts() async {
+    try {
+      final granted = await FlutterContacts.requestPermission(readonly: true);
+      if (!granted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                context.tr(
+                  'Contacts permission is needed to pick from contacts.',
+                  'مطلوب إذن جهات الاتصال للاختيار من الهاتف.',
+                ),
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      final contact = await FlutterContacts.openExternalPick();
+      if (contact == null) return;
+      final full = await FlutterContacts.getContact(contact.id) ?? contact;
+      final phone = full.phones.isNotEmpty ? full.phones.first.number : '';
+      final name = full.displayName.isNotEmpty
+          ? full.displayName
+          : (phone.isNotEmpty ? phone : context.tr('Contact', 'جهة اتصال'));
+      final participant = AlarmParticipant(
+        uid: phone.isNotEmpty
+            ? 'phone_${phone.replaceAll(RegExp(r'\s+'), '')}'
+            : 'contact_${full.id}',
+        displayName: name,
+        status: ParticipantStatus.pending,
+        updatedAtUtc: DateTime.now().toUtc(),
+      );
+      if (mounted) {
+        setState(() {
+          if (_alarmType == AlarmType.buddy) {
+            _participants = [participant];
+          } else if (!_participants.any((p) => p.uid == participant.uid)) {
+            _participants.add(participant);
+          }
+        });
+      }
+    } catch (_) {
+      await _addParticipantManually();
+    }
   }
 
   Future<void> _openCustomRepeatScreen() async {
@@ -284,6 +413,164 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
                   border: const OutlineInputBorder(),
                 ),
               ),
+              const SizedBox(height: 16),
+              Text(
+                context.tr('Alarm Type', 'نوع المنبه'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              SegmentedButton<AlarmType>(
+                segments: [
+                  ButtonSegment(
+                    value: AlarmType.personal,
+                    icon: const Icon(Icons.person_outline, size: 18),
+                    label: Text(context.tr('Personal', 'شخصي')),
+                  ),
+                  ButtonSegment(
+                    value: AlarmType.group,
+                    icon: const Icon(Icons.groups_outlined, size: 18),
+                    label: Text(context.tr('Group', 'مجموعة')),
+                  ),
+                  ButtonSegment(
+                    value: AlarmType.buddy,
+                    icon: const Icon(Icons.people_outline, size: 18),
+                    label: Text(context.tr('Buddy', 'صديق')),
+                  ),
+                ],
+                selected: {_alarmType},
+                onSelectionChanged: (sel) {
+                  setState(() {
+                    _alarmType = sel.first;
+                    if (_alarmType == AlarmType.buddy && _participants.length > 1) {
+                      _participants = [_participants.first];
+                    }
+                  });
+                },
+              ),
+              if (_alarmType != AlarmType.personal) ...[
+                const SizedBox(height: 12),
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              _alarmType == AlarmType.buddy
+                                  ? Icons.people_alt_rounded
+                                  : Icons.groups_rounded,
+                              color: _alarmType == AlarmType.buddy
+                                  ? AppTheme.buddyPurple
+                                  : AppTheme.groupTeal,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _alarmType == AlarmType.buddy
+                                    ? context.tr(
+                                        'Buddy Accountability',
+                                        'متابعة الصديق (Buddy)',
+                                      )
+                                    : context.tr(
+                                        'Group Participants',
+                                        'أعضاء المجموعة (Groups)',
+                                      ),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _alarmType == AlarmType.buddy
+                              ? context.tr(
+                                  'Your buddy will be notified when you complete or miss this alarm.',
+                                  'سيتم إشعار صديقك عند إتمام أو فوات هذا المنبه.',
+                                )
+                              : context.tr(
+                                  'Share this alarm with your group and coordinate via chat.',
+                                  'شارك هذا المنبه مع مجموعتك وتواصلوا عبر المحادثة.',
+                                ),
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        if (_participants.isNotEmpty) ...[
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: _participants
+                                .map(
+                                  (member) => InputChip(
+                                    avatar: CircleAvatar(
+                                      backgroundColor:
+                                          _alarmType == AlarmType.buddy
+                                              ? AppTheme.buddyPurple
+                                              : AppTheme.groupTeal,
+                                      child: Text(
+                                        member.displayName.isNotEmpty
+                                            ? member.displayName[0].toUpperCase()
+                                            : '?',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                    label: Text(member.displayName),
+                                    onDeleted: () {
+                                      setState(() {
+                                        _participants.removeWhere(
+                                          (x) => x.uid == member.uid,
+                                        );
+                                      });
+                                    },
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: [
+                            FilledButton.tonalIcon(
+                              onPressed: _pickParticipantFromContacts,
+                              icon: const Icon(Icons.contacts_outlined, size: 18),
+                              label: Text(
+                                context.tr(
+                                  'Pick from Contacts',
+                                  'اختيار من جهات الاتصال',
+                                ),
+                              ),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: _addParticipantManually,
+                              icon: const Icon(Icons.person_add_outlined, size: 18),
+                              label: Text(
+                                _alarmType == AlarmType.buddy
+                                    ? context.tr('Add Buddy', 'إضافة صديق')
+                                    : context.tr('Add Member', 'إضافة عضو'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               Row(
                 children: [

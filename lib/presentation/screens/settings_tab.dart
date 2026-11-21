@@ -241,6 +241,8 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     final locale = ref.watch(localeProvider);
     final defaultRingtoneUri = ref.watch(defaultRingtoneUriProvider);
     final defaultRingtoneName = ref.watch(defaultRingtoneNameProvider);
+    final skipVoiceConfirm = ref.watch(skipVoiceConfirmationProvider);
+    final geminiApiKey = ref.watch(geminiApiKeyProvider);
     final native = ref.watch(nativeAlarmChannelProvider);
 
     final isCustomDefault =
@@ -317,6 +319,109 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setBool('use_24h_format', v);
             },
+          ),
+          const Divider(),
+
+          // Voice Assistant Settings
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Text(
+              context.tr('Voice Assistant', 'المساعد الصوتي'),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+          ),
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  secondary: const Icon(Icons.bolt_rounded),
+                  title: Text(
+                    context.tr(
+                      'Skip Voice Confirmation',
+                      'حفظ المنبه الصوتي مباشرة بدون تأكيد',
+                    ),
+                  ),
+                  subtitle: Text(
+                    context.tr(
+                      'Save parsed alarms immediately without asking first',
+                      'حفظ المنبه فور فهمه بدون السؤال للتأكيد',
+                    ),
+                  ),
+                  value: skipVoiceConfirm,
+                  onChanged: (v) async {
+                    ref.read(skipVoiceConfirmationProvider.notifier).state = v;
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('skip_voice_confirmation', v);
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.auto_awesome_outlined),
+                  title: Text(
+                    context.tr(
+                      'Gemini AI Parser Key (Optional)',
+                      'مفتاح Gemini للذكاء الاصطناعي (اختياري)',
+                    ),
+                  ),
+                  subtitle: Text(
+                    geminiApiKey.trim().isNotEmpty
+                        ? context.tr(
+                            'Configured (stored locally on device)',
+                            'مُفعّل (محفوظ محلياً على جهازك)',
+                          )
+                        : context.tr(
+                            'Using smart offline Egyptian Arabic parser',
+                            'يعمل حالياً بالمحلل المحلي للعامية المصرية بدون إنترنت',
+                          ),
+                  ),
+                  onTap: () async {
+                    final ctrl = TextEditingController(text: geminiApiKey);
+                    final saved = await showDialog<String>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text(
+                          context.tr(
+                            'Gemini API Key',
+                            'مفتاح Gemini API',
+                          ),
+                        ),
+                        content: TextField(
+                          controller: ctrl,
+                          obscureText: true,
+                          decoration: InputDecoration(
+                            hintText: 'AIza...',
+                            labelText: context.tr(
+                              'Paste API key (leave empty for offline mode)',
+                              'الصق المفتاح (أو اتركه فارغاً للوضع المحلي)',
+                            ),
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            child: Text(context.tr('Cancel', 'إلغاء')),
+                          ),
+                          FilledButton(
+                            onPressed: () =>
+                                Navigator.of(ctx).pop(ctrl.text.trim()),
+                            child: Text(context.tr('Save', 'حفظ')),
+                          ),
+                        ],
+                      ),
+                    );
+                    ctrl.dispose();
+                    if (saved != null) {
+                      ref.read(geminiApiKeyProvider.notifier).state = saved;
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('gemini_api_key', saved);
+                    }
+                  },
+                ),
+              ],
+            ),
           ),
           const Divider(),
 
@@ -538,57 +643,118 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
             ),
           ),
           const Divider(),
-          ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: Text(context.tr('About', 'عن البرنامج')),
-            subtitle: Text(
-              context.tr(
-                'Developer: yousry mahmoud naiem',
-                'المطور: يسري محمود نعيم',
-              ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+            child: Text(
+              context.tr('About the App', 'عن التطبيق'),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
             ),
-            onTap: () => showDialog(
-              context: context,
-              builder: (_) => AlertDialog(
-                title: Text(context.tr('About U3m Alarm', 'عن منبه U3m')),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+          Container(
+            margin: const EdgeInsets.fromLTRB(14, 6, 14, 28),
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0A1F4D), Color(0xFF10347A)],
+                begin: Alignment.topRight,
+                end: Alignment.bottomLeft,
+              ),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.18),
+                width: 1.1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF051230).withOpacity(0.75),
+                  blurRadius: 24,
+                  spreadRadius: 2.5,
+                  offset: const Offset(0, 10),
+                ),
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.45),
+                  blurRadius: 12,
+                  spreadRadius: 0,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
+                    Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.16),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.alarm_on_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
                     Text(
-                      context.tr('U3m Alarm', 'منبه U3m'),
+                      context.tr('About the App', 'عن التطبيق'),
                       style: const TextStyle(
+                        color: Colors.white,
                         fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w800,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      context.tr(
-                        'Smart Personal Alarm Application',
-                        'تطبيق منبه شخصي ذكي',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      context.tr(
-                        'Developer: yousry mahmoud naiem',
-                        'المطور: يسري محمود نعيم',
-                      ),
-                      style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ],
                 ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: Text(context.tr('Close', 'إغلاق')),
+                const SizedBox(height: 12),
+                const Text(
+                  'تطبيق U3m alarm الاصدار الاول ١.٣ تطبيق منبه مرن يسمح بكل التخصيصات لتناسب احتياجاتك',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13.5,
+                    height: 1.65,
+                    fontWeight: FontWeight.w600,
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.14),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.code_rounded,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                      SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          'تطوير/Yousry Mahmoud Naiem',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 16),
         ],
       ),
     );

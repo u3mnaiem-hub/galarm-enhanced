@@ -307,17 +307,48 @@ class Alarm {
         'gradualVolume': gradualVolume,
         'vibrate': vibrate,
         'ringOnVibrateSilent': ringOnVibrateSilent,
-        'type': AlarmType.personal.name,
+        'type': type.name,
         'state': state.name,
         'isEnabled': isEnabled,
         'occurrenceCount': occurrenceCount,
         'currentSnoozeCount': currentSnoozeCount,
         'snoozedUntilUtc': snoozedUntilUtc?.toUtc().toIso8601String(),
         'updatedAtUtc': updatedAtUtc.toUtc().toIso8601String(),
+        'participants': participants
+            .map((p) => {
+                  'uid': p.uid,
+                  'displayName': p.displayName,
+                  'photoUrl': p.photoUrl,
+                  'timezoneId': p.timezoneId,
+                  'status': p.status.name,
+                  'updatedAtUtc': p.updatedAtUtc?.toUtc().toIso8601String(),
+                })
+            .toList(),
       };
 
   factory Alarm.fromBackupMap(Map<String, dynamic> map) {
     final nowUtc = DateTime.now().toUtc();
+    final rawParticipants = map['participants'] as List<dynamic>? ?? const [];
+    final parsedParticipants = rawParticipants
+        .whereType<Map<String, dynamic>>()
+        .map(
+          (p) => AlarmParticipant(
+            uid: (p['uid'] as String?) ?? '',
+            displayName: (p['displayName'] as String?) ?? 'Member',
+            photoUrl: p['photoUrl'] as String?,
+            timezoneId: p['timezoneId'] as String?,
+            status: ParticipantStatus.values.firstWhere(
+              (e) => e.name == p['status'],
+              orElse: () => ParticipantStatus.pending,
+            ),
+            updatedAtUtc: p['updatedAtUtc'] != null
+                ? DateTime.tryParse(p['updatedAtUtc'] as String)?.toUtc()
+                : null,
+          ),
+        )
+        .where((p) => p.uid.isNotEmpty)
+        .toList();
+
     return Alarm(
       id: (map['id'] as String?)?.isNotEmpty == true
           ? map['id'] as String
@@ -340,7 +371,10 @@ class Alarm {
       gradualVolume: map['gradualVolume'] as bool? ?? true,
       vibrate: map['vibrate'] as bool? ?? true,
       ringOnVibrateSilent: map['ringOnVibrateSilent'] as bool? ?? true,
-      type: AlarmType.personal,
+      type: AlarmType.values.firstWhere(
+        (e) => e.name == map['type'],
+        orElse: () => AlarmType.personal,
+      ),
       state: AlarmState.values.firstWhere(
         (e) => e.name == map['state'],
         orElse: () => AlarmState.upcoming,
@@ -354,7 +388,7 @@ class Alarm {
       updatedAtUtc: map['updatedAtUtc'] != null
           ? (DateTime.tryParse(map['updatedAtUtc'] as String)?.toUtc() ?? nowUtc)
           : nowUtc,
-      participants: const [],
+      participants: parsedParticipants,
     );
   }
 }
