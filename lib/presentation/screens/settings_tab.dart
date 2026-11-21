@@ -381,10 +381,13 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
               trailing: isSignedIn
                   ? TextButton(
                       onPressed: () async {
-                        await FirebaseAuth.instance.signOut();
+                        try {
+                          await FirebaseAuth.instance.signOut();
+                        } catch (_) {}
                         ref.read(currentUserIdProvider.notifier).state = 'local_user';
                         ref.read(currentUserPhoneProvider.notifier).state = '';
                         final prefs = await SharedPreferences.getInstance();
+                        await prefs.remove('user_uid');
                         await prefs.remove('user_phone');
                       },
                       child: Text(context.tr('Sign out', 'خروج')),

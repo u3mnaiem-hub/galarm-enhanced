@@ -39,7 +39,7 @@ Future<void> main() async {
   final savedLocaleCode = prefs.getString('locale_code');
   final savedThemeStr = prefs.getString('theme_mode');
 
-  String initialUid = 'local_user';
+  String initialUid = prefs.getString('user_uid') ?? 'local_user';
   String initialName = prefs.getString('user_name') ?? 'Me';
   String initialPhone = prefs.getString('user_phone') ?? '';
 

@@ -10,6 +10,9 @@ import '../../data/remote/firestore_service.dart';
 import '../../domain/entities/alarm.dart';
 import '../providers/app_providers.dart';
 
+/// Free, instant phone-number registration (no SMS / Blaze billing required).
+/// Authenticates anonymously with Firebase (when enabled) and saves the user's
+/// normalized phone number + display name + FCM token in Firestore.
 class PhoneAuthScreen extends ConsumerStatefulWidget {
   final VoidCallback onAuthenticated;
   const PhoneAuthScreen({super.key, required this.onAuthenticated});
@@ -21,20 +24,16 @@ class PhoneAuthScreen extends ConsumerStatefulWidget {
 class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
   String _countryCode = '+20';
   final _phoneCtrl = TextEditingController();
-  final _otpCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
 
-  String? _verificationId;
   bool _loading = false;
-  bool _needsProfile = false;
   String? _error;
 
-  static const _countryCodes = ['+20', '+966', '+971', '+1', '+44', '+49'];
+  static const _countryCodes = ['+20', '+966', '+971', '+965', '+974', '+1', '+44', '+49'];
 
   @override
   void dispose() {
     _phoneCtrl.dispose();
-    _otpCtrl.dispose();
     _nameCtrl.dispose();
     super.dispose();
   }
@@ -55,193 +54,188 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
     return n;
   }
 
-  String _authErrorMessage(FirebaseAuthException e) {
-    switch (e.code) {
-      case 'invalid-phone-number':
-        return context.tr('The phone number is not valid. Check the country code and number.',
-            'رقم الهاتف غير صالح. تأكد من مفتاح الدولة والرقم.');
-      case 'too-many-requests':
-        return context.tr('Too many attempts. Please try again later.',
-            'محاولات كثيرة. حاول مرة أخرى لاحقاً.');
-      case 'quota-exceeded':
-        return context.tr('SMS quota exceeded. Please try again later.',
-            'تم تجاوز حد الرسائل. حاول لاحقاً.');
-      case 'network-request-failed':
-        return context.tr('No internet connection.', 'لا يوجد اتصال بالإنترنت.');
-      case 'app-not-authorized':
-      case 'missing-client-identifier':
-      case 'invalid-app-credential':
-      case 'captcha-check-failed':
-      case 'operation-not-allowed':
-        return context.tr(
-            'Phone sign-in is not configured for this app build (Firebase SHA keys / phone provider). Use Offline Mode for now.',
-            'تسجيل الدخول بالهاتف غير مُعدّ لهذه النسخة (بصمات SHA أو تفعيل الدخول بالهاتف في فايربيز). استخدم الوضع بدون إنترنت حالياً.');
-      default:
-        return context.tr('Verification failed', 'فشل التحقق') +
-            (e.message != null ? ': ${e.message}' : '');
-    }
-  }
+  Future<void> _registerAndContinue() async {
+    final name = _nameCtrl.text.trim();
+    final local = _normalizedLocalNumber();
 
-  Future<void> _sendOtp() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    if (Firebase.apps.isEmpty) {
+    if (name.isEmpty) {
       setState(() {
         _error = context.tr(
-            'Firebase is not configured in this build (google-services.json is missing). You can continue in Offline Mode.',
-            'فايربيز غير مُعدّ في هذه النسخة (ملف google-services.json غير موجود). يمكنك المتابعة بدون إنترنت.');
-        _loading = false;
+          'Please enter your name.',
+          'يرجى إدخال اسمك.',
+        );
       });
       return;
     }
-    final local = _normalizedLocalNumber();
     if (local.length < 6) {
       setState(() {
-        _error = context.tr('Enter a valid phone number.', 'أدخل رقم هاتف صحيحاً.');
-        _loading = false;
+        _error = context.tr(
+          'Please enter a valid phone number.',
+          'يرجى إدخال رقم هاتف صحيح.',
+        );
       });
       return;
     }
-    final fullPhone = '$_countryCode$local';
-    try {
-      await FirebaseAuth.instance.verifyPhoneNumber(
-        phoneNumber: fullPhone,
-        verificationCompleted: (cred) async {
-          await FirebaseAuth.instance.signInWithCredential(cred);
-          if (mounted) setState(() => _needsProfile = true);
-        },
-        verificationFailed: (e) {
-          if (mounted) {
-            setState(() {
-              _error = _authErrorMessage(e);
-              _loading = false;
-            });
-          }
-        },
-        codeSent: (verId, _) {
-          if (mounted) {
-            setState(() {
-              _verificationId = verId;
-              _loading = false;
-            });
-          }
-        },
-        codeAutoRetrievalTimeout: (verId) {
-          _verificationId = verId;
-        },
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = context.tr('Could not send the code. Please try again.', 'تعذر إرسال الرمز. حاول مرة أخرى.');
-        _loading = false;
-      });
-    }
-  }
 
-  Future<void> _verifyOtp() async {
-    if (_verificationId == null) return;
     setState(() {
       _loading = true;
       _error = null;
     });
+
     try {
-      final cred = PhoneAuthProvider.credential(
-        verificationId: _verificationId!,
-        smsCode: _otpCtrl.text.trim(),
+      final normalizedPhone = FirestoreService.normalizePhoneNumber(
+        '$_countryCode$local',
+        defaultCountryCode: _countryCode,
       );
-      await FirebaseAuth.instance.signInWithCredential(cred);
-      setState(() {
-        _needsProfile = true;
-        _loading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = context.tr('Invalid or expired code.', 'الرمز غير صحيح أو منتهي.');
-        _loading = false;
-      });
-    }
-  }
+      final phoneHash = FirestoreService.hashPhoneNumber(
+        normalizedPhone,
+        defaultCountryCode: _countryCode,
+      );
 
-  Future<void> _saveProfileAndContinue() async {
-    final user = FirebaseAuth.instance.currentUser;
-    final uid = user?.uid ?? 'local_user';
-    final displayName = _nameCtrl.text.trim().isEmpty
-        ? context.tr('User', 'مستخدم')
-        : _nameCtrl.text.trim();
-    var tzId = 'Africa/Cairo';
-    try {
-      tzId = await FlutterTimezone.getLocalTimezone();
-    } catch (_) {}
+      var tzId = 'Africa/Cairo';
+      try {
+        tzId = await FlutterTimezone.getLocalTimezone();
+      } catch (_) {}
 
-    final normalizedPhone = user?.phoneNumber?.isNotEmpty == true
-        ? FirestoreService.normalizePhoneNumber(user!.phoneNumber!)
-        : FirestoreService.normalizePhoneNumber(
-            '$_countryCode${_normalizedLocalNumber()}',
-            defaultCountryCode: _countryCode,
-          );
-    final phoneHash = FirestoreService.hashPhoneNumber(
-      normalizedPhone,
-      defaultCountryCode: _countryCode,
-    );
+      // Try Firebase Anonymous Auth first (free on Spark plan).
+      // If Anonymous Auth is not enabled in Firebase Console, fall back cleanly
+      // to a deterministic phone-based UID so Firestore & FCM still work immediately.
+      String uid = 'u_${phoneHash.substring(0, 20)}';
+      if (Firebase.apps.isNotEmpty) {
+        try {
+          final existing = FirebaseAuth.instance.currentUser;
+          if (existing != null) {
+            uid = existing.uid;
+          } else {
+            final cred = await FirebaseAuth.instance.signInAnonymously();
+            if (cred.user != null) {
+              uid = cred.user!.uid;
+            }
+          }
+        } catch (_) {
+          // Keep deterministic phone-based uid — works seamlessly with Firestore test mode
+        }
+      }
 
-    ref.read(currentUserIdProvider.notifier).state = uid;
-    ref.read(currentUserNameProvider.notifier).state = displayName;
-    ref.read(currentUserPhoneProvider.notifier).state = normalizedPhone;
+      ref.read(currentUserIdProvider.notifier).state = uid;
+      ref.read(currentUserNameProvider.notifier).state = name;
+      ref.read(currentUserPhoneProvider.notifier).state = normalizedPhone;
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('user_name', displayName);
-    await prefs.setString('user_phone', normalizedPhone);
-    await prefs.setBool('seen_phone_auth', true);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_uid', uid);
+      await prefs.setString('user_name', name);
+      await prefs.setString('user_phone', normalizedPhone);
+      await prefs.setBool('seen_phone_auth', true);
 
-    final fs = ref.read(firestoreServiceProvider);
-    if (fs != null && user != null) {
-      await fs.upsertUserProfile(
-        UserProfile(
+      final fs = ref.read(firestoreServiceProvider);
+      if (fs != null) {
+        await fs.upsertUserProfile(
+          UserProfile(
+            uid: uid,
+            phoneNumber: normalizedPhone,
+            phoneHash: phoneHash,
+            displayName: name,
+            timezoneId: tzId,
+          ),
+        );
+        await FcmAlarmService.initializeAndRegisterToken(
           uid: uid,
           phoneNumber: normalizedPhone,
-          phoneHash: phoneHash,
-          displayName: displayName,
-          timezoneId: tzId,
-        ),
-      );
-      await FcmAlarmService.initializeAndRegisterToken(
-        uid: uid,
-        phoneNumber: normalizedPhone,
-        firestore: fs,
-        repo: ref.read(alarmRepositoryProvider),
-      );
+          firestore: fs,
+          repo: ref.read(alarmRepositoryProvider),
+        );
+      }
+
+      if (mounted) {
+        widget.onAuthenticated();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = context.tr(
+            'Could not connect right now ($e). Check your internet or tap Offline Mode.',
+            'تعذر الاتصال حالياً ($e). تأكد من الإنترنت أو اضغط بدون إنترنت.',
+          );
+        });
+      }
     }
-    widget.onAuthenticated();
   }
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: Text(context.tr('Sign in with Phone', 'تسجيل الدخول برقم الهاتف')),
+        title: Text(context.tr('Phone Registration', 'تسجيل رقم الهاتف')),
         actions: [
           TextButton(
-            onPressed: widget.onAuthenticated,
-            child: Text(context.tr('Offline Mode', 'بدون إنترنت')),
+            onPressed: _loading ? null : widget.onAuthenticated,
+            child: Text(
+              context.tr('Offline Mode', 'بدون إنترنت'),
+              style: const TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
           children: [
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+            Icon(
+              Icons.alarm_on_rounded,
+              size: 64,
+              color: cs.primary,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              context.tr(
+                'Connect Your Phone Number',
+                'ربط رقم هاتفك بتطبيق منبه U3m',
+              ),
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              context.tr(
+                'Enter your name and phone number once (free, no SMS needed) so Buddies & Groups can share alarms with you.',
+                'أدخل اسمك ورقم هاتفك مرة واحدة (مجاناً بدون رسائل SMS) ليتمكن الأصدقاء والمجموعات من مشاركة المنبهات معك.',
+              ),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: cs.onSurfaceVariant,
               ),
             ),
-          if (!_needsProfile) ...[
+            const SizedBox(height: 20),
+            if (_error != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.red.withOpacity(0.45)),
+                ),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+            TextField(
+              controller: _nameCtrl,
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                labelText: context.tr('Your Name', 'الاسم'),
+                prefixIcon: const Icon(Icons.person_outline),
+              ),
+            ),
+            const SizedBox(height: 14),
             Row(
               children: [
                 DropdownButton<String>(
@@ -249,9 +243,11 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
                   items: _countryCodes
                       .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                       .toList(),
-                  onChanged: (v) {
-                    if (v != null) setState(() => _countryCode = v);
-                  },
+                  onChanged: _loading
+                      ? null
+                      : (v) {
+                          if (v != null) setState(() => _countryCode = v);
+                        },
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -259,49 +255,39 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
                     controller: _phoneCtrl,
                     keyboardType: TextInputType.phone,
                     textDirection: TextDirection.ltr,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _loading ? null : _registerAndContinue(),
                     decoration: InputDecoration(
                       labelText: context.tr('Phone Number', 'رقم الهاتف'),
-                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.phone_outlined),
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            if (_verificationId != null) ...[
-              TextField(
-                controller: _otpCtrl,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: context.tr('SMS Verification Code', 'رمز التحقق عبر SMS'),
-                  border: const OutlineInputBorder(),
-                ),
+            const SizedBox(height: 22),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
               ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: _loading ? null : _verifyOtp,
-                child: Text(context.tr('Verify & Continue', 'تأكيد ومتابعة')),
+              onPressed: _loading ? null : _registerAndContinue,
+              icon: _loading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.check_circle_outline),
+              label: Text(
+                _loading
+                    ? context.tr('Connecting...', 'جاري الاتصال...')
+                    : context.tr('Save & Continue', 'تسجيل ومتابعة'),
               ),
-            ] else
-              FilledButton(
-                onPressed: _loading ? null : _sendOtp,
-                child: Text(context.tr('Send Verification Code', 'إرسال رمز التحقق')),
-              ),
-          ] else ...[
-            TextField(
-              controller: _nameCtrl,
-              decoration: InputDecoration(
-                labelText: context.tr('Display Name', 'الاسم المعروض'),
-                border: const OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _saveProfileAndContinue,
-              child: Text(context.tr('Complete Profile', 'إكمال الملف الشخصي')),
             ),
           ],
-        ],
         ),
       ),
     );
