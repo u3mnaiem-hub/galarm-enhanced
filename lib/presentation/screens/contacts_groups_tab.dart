@@ -176,123 +176,30 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
     List<SavedBuddy> allBuddies, {
     SavedGroup? existing,
   }) async {
-    final nameCtrl = TextEditingController(text: existing?.name ?? '');
-    final selectedIds = <String>{...(existing?.memberIds ?? const <String>[])};
-
-    final saved = await showDialog<SavedGroup>(
+    final saved = await showModalBottomSheet<SavedGroup>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: Text(
-            existing == null
-                ? context.tr('Create Group', 'إنشاء مجموعة جديدة')
-                : context.tr('Edit Group', 'تعديل المجموعة'),
-          ),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: nameCtrl,
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      labelText: context.tr('Group Name', 'اسم المجموعة'),
-                      prefixIcon: const Icon(Icons.groups_outlined),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    context.tr(
-                      'Select Buddies (${selectedIds.length})',
-                      'اختر الأصدقاء (${selectedIds.length})',
-                    ),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  if (allBuddies.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      child: Text(
-                        context.tr(
-                          'No saved buddies yet. Add buddies first in the Buddies tab.',
-                          'لا يوجد أصدقاء محفوظون بعد. أضف أصدقاء أولاً من تبويب الأصدقاء.',
-                        ),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    )
-                  else
-                    ...allBuddies.map(
-                      (b) => CheckboxListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        value: selectedIds.contains(b.id),
-                        title: Text(b.name),
-                        subtitle: b.phone.isNotEmpty ? Text(b.phone) : null,
-                        onChanged: (checked) {
-                          setDialogState(() {
-                            if (checked == true) {
-                              selectedIds.add(b.id);
-                            } else {
-                              selectedIds.remove(b.id);
-                            }
-                          });
-                        },
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: Text(context.tr('Cancel', 'إلغاء')),
-            ),
-            FilledButton(
-              onPressed: () {
-                final name = nameCtrl.text.trim();
-                if (name.isEmpty) return;
-                Navigator.of(ctx).pop(
-                  SavedGroup(
-                    id: existing?.id ?? const Uuid().v4(),
-                    name: name,
-                    memberIds: selectedIds.toList(),
-                    createdAtUtc:
-                        existing?.createdAtUtc ?? DateTime.now().toUtc(),
-                  ),
-                );
-              },
-              child: Text(context.tr('Save', 'حفظ')),
-            ),
-          ],
-        ),
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _GroupEditorSheet(
+        allBuddies: allBuddies,
+        existing: existing,
       ),
     );
-    nameCtrl.dispose();
 
-    if (saved != null) {
-      await ref.read(alarmRepositoryProvider).saveGroup(saved);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              context.tr(
-                'Saved group "${saved.name}"',
-                'تم حفظ المجموعة "${saved.name}"',
-              ),
+    if (saved != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.tr(
+              'Saved group "${saved.name}"',
+              'تم حفظ المجموعة "${saved.name}"',
             ),
           ),
-        );
-      }
+        ),
+      );
     }
   }
 
@@ -627,6 +534,252 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
                       }).toList(),
                     );
                   },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupEditorSheet extends ConsumerStatefulWidget {
+  final List<SavedBuddy> allBuddies;
+  final SavedGroup? existing;
+
+  const _GroupEditorSheet({
+    required this.allBuddies,
+    this.existing,
+  });
+
+  @override
+  ConsumerState<_GroupEditorSheet> createState() => _GroupEditorSheetState();
+}
+
+class _GroupEditorSheetState extends ConsumerState<_GroupEditorSheet> {
+  late final TextEditingController _nameCtrl;
+  late final Set<String> _selectedIds;
+  bool _saving = false;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.existing?.name ?? '');
+    _selectedIds = <String>{...(widget.existing?.memberIds ?? const <String>[])};
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _onSave() async {
+    if (_saving) return;
+    final name = _nameCtrl.text.trim();
+    if (name.isEmpty) {
+      setState(() {
+        _errorText = context.tr(
+          'Please enter a group name.',
+          'يرجى إدخال اسم المجموعة.',
+        );
+      });
+      return;
+    }
+    if (_selectedIds.isEmpty) {
+      setState(() {
+        _errorText = context.tr(
+          'Please select at least one buddy for this group.',
+          'يرجى اختيار صديق واحد على الأقل لهذه المجموعة.',
+        );
+      });
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _errorText = null;
+    });
+
+    try {
+      final group = SavedGroup(
+        id: widget.existing?.id ?? const Uuid().v4(),
+        name: name,
+        memberIds: _selectedIds.toList(),
+        createdAtUtc: widget.existing?.createdAtUtc ?? DateTime.now().toUtc(),
+      );
+      await ref.read(alarmRepositoryProvider).saveGroup(group);
+      if (mounted) {
+        Navigator.of(context).pop(group);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _errorText = context.tr(
+            'Could not save group: $e',
+            'تعذر حفظ المجموعة: $e',
+          );
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom +
+        MediaQuery.of(context).viewPadding.bottom;
+    final maxHeight = MediaQuery.of(context).size.height * 0.82;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(18, 16, 18, 16 + bottomInset),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  widget.existing == null
+                      ? context.tr('Create Group', 'إنشاء مجموعة جديدة')
+                      : context.tr('Edit Group', 'تعديل المجموعة'),
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                IconButton(
+                  onPressed: _saving ? null : () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _nameCtrl,
+              textInputAction: TextInputAction.done,
+              onChanged: (_) {
+                if (_errorText != null) setState(() => _errorText = null);
+              },
+              decoration: InputDecoration(
+                labelText: context.tr('Group Name', 'اسم المجموعة'),
+                prefixIcon: const Icon(Icons.groups_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              context.tr(
+                'Select Buddies (${_selectedIds.length})',
+                'اختر الأصدقاء (${_selectedIds.length})',
+              ),
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 13.5,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Flexible(
+              child: widget.allBuddies.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Text(
+                        context.tr(
+                          'No saved buddies yet. Add buddies first in the Buddies tab.',
+                          'لا يوجد أصدقاء محفوظون بعد. أضف أصدقاء أولاً من تبويب الأصدقاء.',
+                        ),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: widget.allBuddies.length,
+                      itemBuilder: (_, idx) {
+                        final b = widget.allBuddies[idx];
+                        final checked = _selectedIds.contains(b.id);
+                        return CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          value: checked,
+                          title: Text(
+                            b.name,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: b.phone.isNotEmpty ? Text(b.phone) : null,
+                          onChanged: _saving
+                              ? null
+                              : (val) {
+                                  setState(() {
+                                    if (val == true) {
+                                      _selectedIds.add(b.id);
+                                    } else {
+                                      _selectedIds.remove(b.id);
+                                    }
+                                    if (_errorText != null) _errorText = null;
+                                  });
+                                },
+                        );
+                      },
+                    ),
+            ),
+            if (_errorText != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.red.withOpacity(0.45)),
+                ),
+                child: Text(
+                  _errorText!,
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _saving ? null : () => Navigator.of(context).pop(),
+                    child: Text(context.tr('Cancel', 'إلغاء')),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.groupTeal,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: _saving ? null : _onSave,
+                    icon: _saving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.check, size: 18),
+                    label: Text(
+                      _saving
+                          ? context.tr('Saving...', 'جاري الحفظ...')
+                          : context.tr('Save Group', 'حفظ المجموعة'),
+                    ),
+                  ),
                 ),
               ],
             ),

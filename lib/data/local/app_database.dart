@@ -133,6 +133,25 @@ class AppDatabase extends _$AppDatabase {
             await m.createTable(groupsTable);
           }
         },
+        beforeOpen: (details) async {
+          // Ensure buddies_table and groups_table always exist even after interrupted upgrades
+          await customStatement(
+            'CREATE TABLE IF NOT EXISTS buddies_table ('
+            'id TEXT NOT NULL PRIMARY KEY, '
+            'name TEXT NOT NULL, '
+            'phone TEXT NOT NULL DEFAULT \'\', '
+            'created_at_utc INTEGER NOT NULL'
+            ')',
+          );
+          await customStatement(
+            'CREATE TABLE IF NOT EXISTS groups_table ('
+            'id TEXT NOT NULL PRIMARY KEY, '
+            'name TEXT NOT NULL, '
+            'member_ids_json TEXT NOT NULL DEFAULT \'[]\', '
+            'created_at_utc INTEGER NOT NULL'
+            ')',
+          );
+        },
       );
 
   Future<List<AlarmsTableData>> getActiveAlarms() =>
