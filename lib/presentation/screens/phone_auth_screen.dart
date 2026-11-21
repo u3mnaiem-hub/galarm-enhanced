@@ -4,6 +4,8 @@ import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../data/remote/fcm_alarm_service.dart';
 import '../../data/remote/firestore_service.dart';
 import '../../domain/entities/alarm.dart';
 import '../providers/app_providers.dart';
@@ -166,26 +168,50 @@ class _PhoneAuthScreenState extends ConsumerState<PhoneAuthScreen> {
   Future<void> _saveProfileAndContinue() async {
     final user = FirebaseAuth.instance.currentUser;
     final uid = user?.uid ?? 'local_user';
-    final displayName =
-        _nameCtrl.text.trim().isEmpty ? context.tr('User', 'مستخدم') : _nameCtrl.text.trim();
-    final tzId = await FlutterTimezone.getLocalTimezone();
+    final displayName = _nameCtrl.text.trim().isEmpty
+        ? context.tr('User', 'مستخدم')
+        : _nameCtrl.text.trim();
+    var tzId = 'Africa/Cairo';
+    try {
+      tzId = await FlutterTimezone.getLocalTimezone();
+    } catch (_) {}
+
+    final normalizedPhone = user?.phoneNumber?.isNotEmpty == true
+        ? FirestoreService.normalizePhoneNumber(user!.phoneNumber!)
+        : FirestoreService.normalizePhoneNumber(
+            '$_countryCode${_normalizedLocalNumber()}',
+            defaultCountryCode: _countryCode,
+          );
     final phoneHash = FirestoreService.hashPhoneNumber(
-      '$_countryCode${_normalizedLocalNumber()}',
+      normalizedPhone,
       defaultCountryCode: _countryCode,
     );
 
     ref.read(currentUserIdProvider.notifier).state = uid;
     ref.read(currentUserNameProvider.notifier).state = displayName;
+    ref.read(currentUserPhoneProvider.notifier).state = normalizedPhone;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_name', displayName);
+    await prefs.setString('user_phone', normalizedPhone);
+    await prefs.setBool('seen_phone_auth', true);
 
     final fs = ref.read(firestoreServiceProvider);
     if (fs != null && user != null) {
       await fs.upsertUserProfile(
         UserProfile(
           uid: uid,
+          phoneNumber: normalizedPhone,
           phoneHash: phoneHash,
           displayName: displayName,
           timezoneId: tzId,
         ),
+      );
+      await FcmAlarmService.initializeAndRegisterToken(
+        uid: uid,
+        phoneNumber: normalizedPhone,
+        firestore: fs,
+        repo: ref.read(alarmRepositoryProvider),
       );
     }
     widget.onAuthenticated();

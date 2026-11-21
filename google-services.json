@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "691661080302",
+    "project_id": "u3m-alarm",
+    "storage_bucket": "u3m-alarm.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:691661080302:android:cb78ca29314e5f30f0d5ff",
+        "android_client_info": {
+          "package_name": "com.galarmenhanced.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzYeU-asDIZwpyPl3OTZVX4xj1sVvReuE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

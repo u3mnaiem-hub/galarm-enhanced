@@ -63,5 +63,6 @@ final defaultRingtoneUriProvider = StateProvider<String>((ref) => 'default');
 final defaultRingtoneNameProvider = StateProvider<String>((ref) => '');
 final currentUserIdProvider = StateProvider<String>((ref) => 'local_user');
 final currentUserNameProvider = StateProvider<String>((ref) => 'Me');
+final currentUserPhoneProvider = StateProvider<String>((ref) => '');
 final skipVoiceConfirmationProvider = StateProvider<bool>((ref) => false);
 final offlineVoiceModeProvider = StateProvider<bool>((ref) => false);

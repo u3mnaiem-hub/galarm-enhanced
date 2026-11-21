@@ -74,13 +74,50 @@ class AlarmRepository {
 
     if (_remote != null && updated.type != AlarmType.personal) {
       try {
-        await _remote!.syncAlarm(updated);
+        final allBuddies = await _db.getAllBuddies();
+        final buddyPhoneById = {for (final b in allBuddies) b.id: b.phone};
+        final recipientPhones = updated.participants
+            .map((p) => buddyPhoneById[p.uid] ?? '')
+            .where((ph) => ph.isNotEmpty)
+            .toList();
+        await _remote!.syncAlarm(updated, recipientPhones: recipientPhones);
       } catch (_) {
         await _db.enqueueSync('alarm', updated.id, '{}');
       }
     }
 
     await _scheduleOrCancelNative(updated);
+  }
+
+  /// Saves an incoming buddy/group alarm received via FCM or Firestore into local SQLite
+  /// and schedules it natively so it rings on this device without re-pushing to Firestore.
+  Future<void> saveIncomingSharedAlarm(Alarm incoming) async {
+    await _db.upsertAlarm(
+      AlarmsTableCompanion(
+        id: Value(incoming.id),
+        ownerId: Value(incoming.ownerId),
+        title: Value(incoming.title),
+        notes: Value(incoming.notes),
+        startAtUtc: Value(incoming.startAtUtc.toUtc()),
+        creatorTimezoneId: Value(incoming.creatorTimezoneId),
+        repeatRuleJson: Value(incoming.repeatRule.toJsonString()),
+        snoozeConfigJson: Value(incoming.snoozeConfig.toJsonString()),
+        ringtoneUri: Value(incoming.ringtoneUri),
+        volume: Value(incoming.volume),
+        gradualVolume: Value(incoming.gradualVolume),
+        vibrate: Value(incoming.vibrate),
+        ringOnVibrateSilent: Value(incoming.ringOnVibrateSilent),
+        alarmType: Value(incoming.type.name),
+        state: Value(incoming.state.name),
+        isEnabled: Value(incoming.isEnabled),
+        occurrenceCount: Value(incoming.occurrenceCount),
+        currentSnoozeCount: Value(incoming.currentSnoozeCount),
+        snoozedUntilUtc: Value(incoming.snoozedUntilUtc),
+        updatedAtUtc: Value(incoming.updatedAtUtc.toUtc()),
+        isDeleted: const Value(false),
+      ),
+    );
+    await _scheduleOrCancelNative(incoming);
   }
 
   Future<void> deleteAlarm(String alarmId, {bool isOnline = false}) async {

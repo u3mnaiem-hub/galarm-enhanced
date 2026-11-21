@@ -1,6 +1,9 @@
+import 'dart:async';
 import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../data/remote/fcm_alarm_service.dart';
+import '../../domain/entities/alarm.dart';
 import '../providers/app_providers.dart';
 import 'alarms_tab.dart';
 import 'contacts_groups_tab.dart';
@@ -18,18 +21,59 @@ class HomeShell extends ConsumerStatefulWidget {
 
 class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
+  StreamSubscription<List<Alarm>>? _sharedByUidSub;
+  StreamSubscription<List<Alarm>>? _sharedByPhoneSub;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     Future.microtask(_syncAlarmsWithNative);
+    Future.microtask(_initFirebaseSyncAndFcm);
   }
 
   @override
   void dispose() {
+    _sharedByUidSub?.cancel();
+    _sharedByPhoneSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  Future<void> _initFirebaseSyncAndFcm() async {
+    final fs = ref.read(firestoreServiceProvider);
+    final repo = ref.read(alarmRepositoryProvider);
+    final uid = ref.read(currentUserIdProvider);
+    final phone = ref.read(currentUserPhoneProvider);
+    if (fs == null || uid == 'local_user') return;
+
+    await FcmAlarmService.initializeAndRegisterToken(
+      uid: uid,
+      phoneNumber: phone,
+      firestore: fs,
+      repo: repo,
+    );
+
+    _sharedByUidSub?.cancel();
+    _sharedByUidSub = fs.watchSharedAlarmsForUser(uid).listen((alarms) async {
+      for (final a in alarms) {
+        if (a.ownerId != uid) {
+          await repo.saveIncomingSharedAlarm(a);
+        }
+      }
+    });
+
+    if (phone.isNotEmpty) {
+      _sharedByPhoneSub?.cancel();
+      _sharedByPhoneSub =
+          fs.watchSharedAlarmsForPhone(phone).listen((alarms) async {
+        for (final a in alarms) {
+          if (a.ownerId != uid) {
+            await repo.saveIncomingSharedAlarm(a);
+          }
+        }
+      });
+    }
   }
 
   @override

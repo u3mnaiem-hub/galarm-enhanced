@@ -435,6 +435,7 @@ class AppNotification {
 
 class UserProfile {
   final String uid;
+  final String phoneNumber;
   final String phoneHash;
   final String displayName;
   final String? photoUrl;
@@ -442,6 +443,7 @@ class UserProfile {
 
   const UserProfile({
     required this.uid,
+    this.phoneNumber = '',
     required this.phoneHash,
     required this.displayName,
     this.photoUrl,

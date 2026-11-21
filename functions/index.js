@@ -6,7 +6,7 @@ const { getMessaging } = require("firebase-admin/messaging");
 initializeApp();
 const db = getFirestore();
 
-async function notifyUser(uid, title, body, kind, alarmId) {
+async function notifyUser(uid, title, body, kind, alarmId, extraData = {}) {
   await db.collection("users").doc(uid).collection("notifications").add({
     title,
     body,
@@ -19,10 +19,26 @@ async function notifyUser(uid, title, body, kind, alarmId) {
   const userDoc = await db.collection("users").doc(uid).get();
   const tokens = userDoc.data()?.fcmTokens || [];
   if (tokens.length > 0) {
+    const dataPayload = {
+      kind: String(kind || ""),
+      alarmId: String(alarmId || ""),
+    };
+    for (const [k, v] of Object.entries(extraData)) {
+      if (v !== undefined && v !== null) {
+        dataPayload[k] = String(v);
+      }
+    }
     await getMessaging().sendEachForMulticast({
       tokens,
       notification: { title, body },
-      data: { kind, alarmId: alarmId || "" },
+      data: dataPayload,
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "u3m_alarm_channel",
+          priority: "max",
+        },
+      },
     });
   }
 }
@@ -37,13 +53,35 @@ exports.onParticipantChanged = onDocumentWritten(
     const alarm = alarmDoc.data();
     if (!alarm) return;
 
+    // Never push back to the creator
+    if (uid === alarm.ownerId && !event.data.before.exists) return;
+
     if (!event.data.before.exists) {
+      const startAtMillis = alarm.startAtMillis ||
+        (alarm.startAtUtc && typeof alarm.startAtUtc.toMillis === "function"
+          ? alarm.startAtUtc.toMillis()
+          : Date.now());
+
       await notifyUser(
         uid,
-        `New ${alarm.type} alarm: ${alarm.title}`,
-        "You were added as a participant.",
-        "participant_added",
-        alarmId
+        `منبه مشترك (${alarm.type === "group" ? "مجموعة" : "صديق"}): ${alarm.title}`,
+        alarm.notes || "تمت إضافتك لهذا المنبه وسيرن تلقائياً في موعده.",
+        "shared_alarm",
+        alarmId,
+        {
+          ownerId: alarm.ownerId || "",
+          title: alarm.title || "Shared Alarm",
+          notes: alarm.notes || "",
+          startAtMillis,
+          repeatRuleJson: alarm.repeatRuleJson || "{}",
+          creatorTimezoneId: alarm.tz || "Africa/Cairo",
+          type: alarm.type || "buddy",
+          volume: alarm.volume ?? 0.9,
+          gradualVolume: alarm.gradualVolume ?? true,
+          vibrate: alarm.vibrate ?? true,
+          ringOnVibrateSilent: alarm.ringOnVibrateSilent ?? true,
+          isEnabled: alarm.isEnabled ?? true,
+        }
       );
     } else if (after.status === "done" || after.status === "missed") {
       await notifyUser(

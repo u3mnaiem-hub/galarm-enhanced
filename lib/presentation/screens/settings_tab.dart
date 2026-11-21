@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -11,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/platform/native_voice_channel.dart';
 import '../../l10n/tr.dart';
 import '../providers/app_providers.dart';
+import 'phone_auth_screen.dart';
 
 class SettingsTab extends ConsumerStatefulWidget {
   const SettingsTab({super.key});
@@ -306,6 +309,10 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     final defaultRingtoneName = ref.watch(defaultRingtoneNameProvider);
     final skipVoiceConfirm = ref.watch(skipVoiceConfirmationProvider);
     final offlineVoiceMode = ref.watch(offlineVoiceModeProvider);
+    final currentUid = ref.watch(currentUserIdProvider);
+    final currentPhone = ref.watch(currentUserPhoneProvider);
+    final currentName = ref.watch(currentUserNameProvider);
+    final isSignedIn = currentUid != 'local_user' && Firebase.apps.isNotEmpty;
     final native = ref.watch(nativeAlarmChannelProvider);
     final voice = ref.watch(nativeVoiceChannelProvider);
 
@@ -339,6 +346,63 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
       appBar: AppBar(title: Text(context.tr('Settings', 'الإعدادات'))),
       body: ListView(
         children: [
+          // Phone Account (Firebase Auth)
+          Card(
+            margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: isSignedIn
+                    ? const Color(0xFF059669).withOpacity(0.16)
+                    : Theme.of(context).colorScheme.primaryContainer,
+                child: Icon(
+                  isSignedIn ? Icons.verified_user_rounded : Icons.phone_android_rounded,
+                  color: isSignedIn
+                      ? const Color(0xFF059669)
+                      : Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              title: Text(
+                isSignedIn
+                    ? '$currentName ($currentPhone)'
+                    : context.tr('Sign in with Phone Number', 'تسجيل الدخول برقم الهاتف'),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text(
+                isSignedIn
+                    ? context.tr(
+                        'Connected to Firebase — Buddy & Group alarms ring on phones',
+                        'متصل بفايربيز — منبهات الأصدقاء والمجموعات ترن على هواتفهم',
+                      )
+                    : context.tr(
+                        'Sign in to send & receive Buddy and Group alarms via FCM',
+                        'سجل دخولك لإرسال واستقبال منبهات الأصدقاء والمجموعات',
+                      ),
+              ),
+              trailing: isSignedIn
+                  ? TextButton(
+                      onPressed: () async {
+                        await FirebaseAuth.instance.signOut();
+                        ref.read(currentUserIdProvider.notifier).state = 'local_user';
+                        ref.read(currentUserPhoneProvider.notifier).state = '';
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.remove('user_phone');
+                      },
+                      child: Text(context.tr('Sign out', 'خروج')),
+                    )
+                  : FilledButton.tonal(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => PhoneAuthScreen(
+                              onAuthenticated: () => Navigator.of(context).pop(),
+                            ),
+                          ),
+                        );
+                      },
+                      child: Text(context.tr('Sign in', 'دخول')),
+                    ),
+            ),
+          ),
           ListTile(
             leading: const Icon(Icons.brightness_6),
             title: Text(context.tr('Theme', 'المظهر')),

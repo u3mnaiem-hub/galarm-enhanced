@@ -25,6 +25,7 @@ jobs:
         run: |
           mkdir -p /tmp/custom_backup
           cp -r lib pubspec.yaml l10n.yaml test android /tmp/custom_backup/
+          if [ -f google-services.json ]; then cp google-services.json /tmp/custom_backup/; fi
           flutter create . --project-name galarm_enhanced --org com.galarmenhanced --platforms android
           cp /tmp/custom_backup/pubspec.yaml .
           cp /tmp/custom_backup/l10n.yaml .
@@ -34,6 +35,11 @@ jobs:
           rm -rf android/app/src/main/kotlin/com/galarmenhanced/galarm_enhanced
           rm -rf android/app/src/main/res/mipmap-anydpi*
           cp -r /tmp/custom_backup/android/app/src/main/* android/app/src/main/
+          if [ -f /tmp/custom_backup/google-services.json ]; then
+            cp /tmp/custom_backup/google-services.json android/app/google-services.json
+          elif [ -f /tmp/custom_backup/android/app/google-services.json ]; then
+            cp /tmp/custom_backup/android/app/google-services.json android/app/google-services.json
+          fi
           if [ -f android/app/build.gradle ]; then
             sed -i 's/namespace = .*/namespace = "com.galarmenhanced.app"/g' android/app/build.gradle
             sed -i 's/applicationId = .*/applicationId = "com.galarmenhanced.app"/g' android/app/build.gradle
@@ -41,11 +47,14 @@ jobs:
             sed -i 's/minSdk = .*/minSdk = 26/g' android/app/build.gradle
             sed -i 's/compileSdk = .*/compileSdk = 35/g' android/app/build.gradle
             sed -i 's/targetSdk = .*/targetSdk = 35/g' android/app/build.gradle
-            printf '\nandroid {\n    compileOptions {\n        coreLibraryDesugaringEnabled true\n    }\n}\n\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"\n    implementation "com.alphacephei:vosk-android:0.3.75"\n}\n' >> android/app/build.gradle
+            printf '\napply plugin: "com.google.gms.google-services"\n\nandroid {\n    compileOptions {\n        coreLibraryDesugaringEnabled true\n    }\n}\n\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"\n    implementation "com.alphacephei:vosk-android:0.3.75"\n}\n' >> android/app/build.gradle
           fi
           if [ -f android/settings.gradle ]; then
             sed -i 's/id "com.android.application" version "[^"]*"/id "com.android.application" version "8.5.2"/g' android/settings.gradle
             sed -i 's/id "org.jetbrains.kotlin.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "2.0.21"/g' android/settings.gradle
+            if ! grep -q "com.google.gms.google-services" android/settings.gradle; then
+              sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
+            fi
           fi
           if [ -f android/gradle/wrapper/gradle-wrapper.properties ]; then
             sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
