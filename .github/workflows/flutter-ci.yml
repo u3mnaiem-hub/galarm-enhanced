@@ -22,6 +22,11 @@ jobs:
           channel: "stable"
 
       - name: Scaffold Flutter Android Gradle wrapper around project sources
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           mkdir -p /tmp/custom_backup
           cp -r lib pubspec.yaml l10n.yaml test android /tmp/custom_backup/
@@ -40,6 +45,9 @@ jobs:
           elif [ -f /tmp/custom_backup/android/app/google-services.json ]; then
             cp /tmp/custom_backup/android/app/google-services.json android/app/google-services.json
           fi
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/u3m-alarm-release.jks
+          fi
           if [ -f android/app/build.gradle ]; then
             sed -i 's/namespace = .*/namespace = "com.galarmenhanced.app"/g' android/app/build.gradle
             sed -i 's/applicationId = .*/applicationId = "com.galarmenhanced.app"/g' android/app/build.gradle
@@ -47,7 +55,7 @@ jobs:
             sed -i 's/minSdk = .*/minSdk = 26/g' android/app/build.gradle
             sed -i 's/compileSdk = .*/compileSdk = 35/g' android/app/build.gradle
             sed -i 's/targetSdk = .*/targetSdk = 35/g' android/app/build.gradle
-            printf '\napply plugin: "com.google.gms.google-services"\n\nandroid {\n    compileOptions {\n        coreLibraryDesugaringEnabled true\n    }\n}\n\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"\n    implementation "com.alphacephei:vosk-android:0.3.75"\n}\n' >> android/app/build.gradle
+            printf '\napply plugin: "com.google.gms.google-services"\n\nandroid {\n    compileOptions {\n        coreLibraryDesugaringEnabled true\n    }\n    signingConfigs {\n        release {\n            storeFile file("u3m-alarm-release.jks")\n            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")\n            keyAlias System.getenv("ANDROID_KEY_ALIAS")\n            keyPassword System.getenv("ANDROID_KEY_PASSWORD")\n        }\n    }\n    buildTypes {\n        release {\n            signingConfig signingConfigs.release\n        }\n    }\n}\n\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"\n    implementation "com.alphacephei:vosk-android:0.3.75"\n}\n' >> android/app/build.gradle
           fi
           if [ -f android/settings.gradle ]; then
             sed -i 's/id "com.android.application" version "[^"]*"/id "com.android.application" version "8.5.2"/g' android/settings.gradle
@@ -70,6 +78,10 @@ jobs:
           flutter test test/voice_alarm_parser_test.dart test/voice_engine_selector_test.dart test/recurrence_calculator_test.dart
 
       - name: Build Release APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           flutter build apk --release
           cp build/app/outputs/flutter-apk/app-release.apk "build/app/outputs/flutter-apk/U3m Alarm.apk"
