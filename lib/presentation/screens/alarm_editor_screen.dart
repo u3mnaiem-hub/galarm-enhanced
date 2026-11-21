@@ -470,9 +470,8 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
                       if (_selectedGroupId == null && savedGroups.isNotEmpty) {
                         final g = savedGroups.first;
                         _selectedGroupId = g.id;
-                        _participants = g.memberIds
-                            .map((id) => buddyMap[id]?.toAlarmParticipant())
-                            .whereType<AlarmParticipant>()
+                        _participants = g.members
+                            .map((m) => m.toAlarmParticipant())
                             .toList();
                       }
                     }
@@ -603,10 +602,8 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
                           )
                         else
                           ...savedGroups.map((g) {
-                            final members = g.memberIds
-                                .map((id) => buddyMap[id]?.name)
-                                .whereType<String>()
-                                .toList();
+                            final members =
+                                g.members.map((m) => m.name).toList();
                             return RadioListTile<String>(
                               dense: true,
                               contentPadding: EdgeInsets.zero,
@@ -627,9 +624,8 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
                                 if (val == null) return;
                                 setState(() {
                                   _selectedGroupId = val;
-                                  _participants = g.memberIds
-                                      .map((id) => buddyMap[id]?.toAlarmParticipant())
-                                      .whereType<AlarmParticipant>()
+                                  _participants = g.members
+                                      .map((m) => m.toAlarmParticipant())
                                       .toList();
                                 });
                               },

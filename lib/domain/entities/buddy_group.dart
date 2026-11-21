@@ -57,39 +57,86 @@ class SavedBuddy {
   }
 }
 
+/// Independent member stored directly inside a [SavedGroup] (not linked to [SavedBuddy]).
+class GroupMember {
+  final String id;
+  final String name;
+  final String phone;
+
+  const GroupMember({
+    required this.id,
+    required this.name,
+    this.phone = '',
+  });
+
+  AlarmParticipant toAlarmParticipant() {
+    return AlarmParticipant(
+      uid: id,
+      displayName: phone.isNotEmpty ? '$name ($phone)' : name,
+      status: ParticipantStatus.pending,
+      updatedAtUtc: DateTime.now().toUtc(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'phone': phone,
+      };
+
+  factory GroupMember.fromJson(Map<String, dynamic> map) {
+    return GroupMember(
+      id: (map['id'] as String?)?.isNotEmpty == true
+          ? map['id'] as String
+          : 'member_${DateTime.now().microsecondsSinceEpoch}',
+      name: (map['name'] as String?) ?? 'Member',
+      phone: (map['phone'] as String?) ?? '',
+    );
+  }
+}
+
 class SavedGroup {
   final String id;
   final String name;
-  final List<String> memberIds;
+  final List<GroupMember> members;
   final DateTime createdAtUtc;
 
   const SavedGroup({
     required this.id,
     required this.name,
-    this.memberIds = const [],
+    this.members = const [],
     required this.createdAtUtc,
   });
 
   SavedGroup copyWith({
     String? name,
-    List<String>? memberIds,
+    List<GroupMember>? members,
   }) {
     return SavedGroup(
       id: id,
       name: name ?? this.name,
-      memberIds: memberIds ?? this.memberIds,
+      members: members ?? this.members,
       createdAtUtc: createdAtUtc,
     );
   }
 
-  String get memberIdsJson => jsonEncode(memberIds);
+  /// Stored in `groups_table.member_ids_json` as JSON array of GroupMember objects.
+  String get membersJson => jsonEncode(members.map((m) => m.toJson()).toList());
 
-  static List<String> decodeMemberIds(String raw) {
+  static List<GroupMember> decodeMembers(String raw) {
     if (raw.isEmpty) return const [];
     try {
       final decoded = jsonDecode(raw);
       if (decoded is List) {
-        return decoded.map((e) => e.toString()).toList();
+        final list = <GroupMember>[];
+        for (final item in decoded) {
+          if (item is Map<String, dynamic>) {
+            list.add(GroupMember.fromJson(item));
+          } else if (item is Map) {
+            list.add(GroupMember.fromJson(Map<String, dynamic>.from(item)));
+          }
+        }
+        return list;
       }
     } catch (_) {}
     return const [];
@@ -98,22 +145,31 @@ class SavedGroup {
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
-        'memberIds': memberIds,
+        'members': members.map((m) => m.toJson()).toList(),
         'createdAtUtc': createdAtUtc.toUtc().toIso8601String(),
       };
 
   factory SavedGroup.fromJson(Map<String, dynamic> map) {
     final nowUtc = DateTime.now().toUtc();
-    final rawMembers = map['memberIds'];
-    final members = rawMembers is List
-        ? rawMembers.map((e) => e.toString()).toList()
-        : (rawMembers is String ? decodeMemberIds(rawMembers) : const <String>[]);
+    final rawMembers = map['members'];
+    final parsed = <GroupMember>[];
+    if (rawMembers is List) {
+      for (final item in rawMembers) {
+        if (item is Map<String, dynamic>) {
+          parsed.add(GroupMember.fromJson(item));
+        } else if (item is Map) {
+          parsed.add(GroupMember.fromJson(Map<String, dynamic>.from(item)));
+        }
+      }
+    } else if (rawMembers is String) {
+      parsed.addAll(decodeMembers(rawMembers));
+    }
     return SavedGroup(
       id: (map['id'] as String?)?.isNotEmpty == true
           ? map['id'] as String
           : 'group_${nowUtc.microsecondsSinceEpoch}',
       name: (map['name'] as String?) ?? 'Group',
-      memberIds: members,
+      members: parsed,
       createdAtUtc: map['createdAtUtc'] != null
           ? (DateTime.tryParse(map['createdAtUtc'] as String)?.toUtc() ?? nowUtc)
           : nowUtc,

@@ -162,23 +162,8 @@ class AlarmRepository {
   }
 
   Future<void> deleteBuddy(String id) async {
+    // Buddies and Groups are completely independent — deleting a buddy never affects any group.
     await _db.deleteBuddy(id);
-    // Also remove this buddy from any saved groups
-    final groups = await _db.getAllGroups();
-    for (final g in groups) {
-      final members = SavedGroup.decodeMemberIds(g.memberIdsJson);
-      if (members.contains(id)) {
-        final updated = members.where((m) => m != id).toList();
-        await _db.upsertGroup(
-          GroupsTableCompanion(
-            id: Value(g.id),
-            name: Value(g.name),
-            memberIdsJson: Value(jsonEncode(updated)),
-            createdAtUtc: Value(g.createdAtUtc.toUtc()),
-          ),
-        );
-      }
-    }
   }
 
   Stream<List<SavedGroup>> watchGroups() {
@@ -188,7 +173,7 @@ class AlarmRepository {
                 (r) => SavedGroup(
                   id: r.id,
                   name: r.name,
-                  memberIds: SavedGroup.decodeMemberIds(r.memberIdsJson),
+                  members: SavedGroup.decodeMembers(r.memberIdsJson),
                   createdAtUtc: r.createdAtUtc.toUtc(),
                 ),
               )
@@ -201,7 +186,7 @@ class AlarmRepository {
       GroupsTableCompanion(
         id: Value(group.id),
         name: Value(group.name),
-        memberIdsJson: Value(group.memberIdsJson),
+        memberIdsJson: Value(group.membersJson),
         createdAtUtc: Value(group.createdAtUtc.toUtc()),
       ),
     );
@@ -239,7 +224,7 @@ class AlarmRepository {
           (g) => SavedGroup(
             id: g.id,
             name: g.name,
-            memberIds: SavedGroup.decodeMemberIds(g.memberIdsJson),
+            members: SavedGroup.decodeMembers(g.memberIdsJson),
             createdAtUtc: g.createdAtUtc.toUtc(),
           ).toJson(),
         )

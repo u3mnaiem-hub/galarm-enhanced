@@ -172,10 +172,7 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
     }
   }
 
-  Future<void> _showGroupDialog(
-    List<SavedBuddy> allBuddies, {
-    SavedGroup? existing,
-  }) async {
+  Future<void> _showGroupDialog({SavedGroup? existing}) async {
     final saved = await showModalBottomSheet<SavedGroup>(
       context: context,
       isScrollControlled: true,
@@ -183,10 +180,7 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => _GroupEditorSheet(
-        allBuddies: allBuddies,
-        existing: existing,
-      ),
+      builder: (_) => _GroupEditorSheet(existing: existing),
     );
 
     if (saved != null && mounted) {
@@ -237,7 +231,6 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
     final buddiesAsync = ref.watch(buddiesStreamProvider);
     final groupsAsync = ref.watch(groupsStreamProvider);
     final buddies = buddiesAsync.valueOrNull ?? const <SavedBuddy>[];
-    final buddyMap = {for (final b in buddies) b.id: b};
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
 
@@ -412,7 +405,7 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
               ],
             ),
 
-            // TAB 2: Saved Groups
+            // TAB 2: Saved Groups (completely independent of Buddies)
             ListView(
               padding: const EdgeInsets.fromLTRB(14, 14, 14, 32),
               children: [
@@ -421,9 +414,9 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
                     backgroundColor: AppTheme.groupTeal,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                  onPressed: () => _showGroupDialog(buddies),
+                  onPressed: () => _showGroupDialog(),
                   icon: const Icon(Icons.group_add_rounded, size: 20),
-                  label: Text(context.tr('Create New Group', 'إنشاء مجموعة جديدة')),
+                  label: Text(context.tr('New Group', 'مجموعة جديدة')),
                 ),
                 const SizedBox(height: 16),
                 groupsAsync.when(
@@ -444,8 +437,8 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
                               const SizedBox(height: 8),
                               Text(
                                 context.tr(
-                                  'No saved groups yet. Create a group and add your saved buddies to it.',
-                                  'لا توجد مجموعات محفوظة بعد. أنشئ مجموعة وأضف إليها أصدقاءك المحفوظين.',
+                                  'No saved groups yet. Tap "New Group" and add members directly by name & phone or from contacts.',
+                                  'لا توجد مجموعات محفوظة بعد. اضغط «مجموعة جديدة» وأضف الأعضاء بالاسم والرقم أو من جهات الاتصال.',
                                 ),
                                 textAlign: TextAlign.center,
                                 style: TextStyle(color: cs.onSurfaceVariant),
@@ -457,10 +450,8 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
                     }
                     return Column(
                       children: list.map((group) {
-                        final memberNames = group.memberIds
-                            .map((id) => buddyMap[id]?.name)
-                            .whereType<String>()
-                            .toList();
+                        final memberNames =
+                            group.members.map((m) => m.name).toList();
                         return Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           decoration: BoxDecoration(
@@ -516,10 +507,8 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
                                   tooltip: context.tr('Edit', 'تعديل'),
                                   icon: Icon(Icons.edit_outlined,
                                       color: cs.primary),
-                                  onPressed: () => _showGroupDialog(
-                                    buddies,
-                                    existing: group,
-                                  ),
+                                  onPressed: () =>
+                                      _showGroupDialog(existing: group),
                                 ),
                                 IconButton(
                                   tooltip: context.tr('Delete', 'حذف'),
@@ -545,13 +534,9 @@ class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
 }
 
 class _GroupEditorSheet extends ConsumerStatefulWidget {
-  final List<SavedBuddy> allBuddies;
   final SavedGroup? existing;
 
-  const _GroupEditorSheet({
-    required this.allBuddies,
-    this.existing,
-  });
+  const _GroupEditorSheet({this.existing});
 
   @override
   ConsumerState<_GroupEditorSheet> createState() => _GroupEditorSheetState();
@@ -559,7 +544,7 @@ class _GroupEditorSheet extends ConsumerStatefulWidget {
 
 class _GroupEditorSheetState extends ConsumerState<_GroupEditorSheet> {
   late final TextEditingController _nameCtrl;
-  late final Set<String> _selectedIds;
+  late final List<GroupMember> _members;
   bool _saving = false;
   String? _errorText;
 
@@ -567,13 +552,116 @@ class _GroupEditorSheetState extends ConsumerState<_GroupEditorSheet> {
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.existing?.name ?? '');
-    _selectedIds = <String>{...(widget.existing?.memberIds ?? const <String>[])};
+    _members = [...(widget.existing?.members ?? const <GroupMember>[])];
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _addMemberManually() async {
+    final mNameCtrl = TextEditingController();
+    final mPhoneCtrl = TextEditingController();
+    final added = await showDialog<GroupMember>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.tr('Add Group Member', 'إضافة عضو للمجموعة')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: mNameCtrl,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: context.tr('Name', 'الاسم'),
+                prefixIcon: const Icon(Icons.person_outline),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: mPhoneCtrl,
+              keyboardType: TextInputType.phone,
+              textDirection: TextDirection.ltr,
+              decoration: InputDecoration(
+                labelText: context.tr('Phone Number', 'رقم الهاتف'),
+                prefixIcon: const Icon(Icons.phone_outlined),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(context.tr('Cancel', 'إلغاء')),
+          ),
+          FilledButton(
+            onPressed: () {
+              final n = mNameCtrl.text.trim();
+              if (n.isEmpty) return;
+              Navigator.of(ctx).pop(
+                GroupMember(
+                  id: const Uuid().v4(),
+                  name: n,
+                  phone: mPhoneCtrl.text.trim(),
+                ),
+              );
+            },
+            child: Text(context.tr('Add', 'إضافة')),
+          ),
+        ],
+      ),
+    );
+    mNameCtrl.dispose();
+    mPhoneCtrl.dispose();
+
+    if (added != null && mounted) {
+      setState(() {
+        _members.add(added);
+        if (_errorText != null) _errorText = null;
+      });
+    }
+  }
+
+  Future<void> _pickMemberFromContacts() async {
+    try {
+      final granted = await FlutterContacts.requestPermission(readonly: true);
+      if (!granted) {
+        if (mounted) {
+          setState(() {
+            _errorText = context.tr(
+              'Contacts permission is required to pick a member.',
+              'مطلوب إذن جهات الاتصال لاختيار عضو من الهاتف.',
+            );
+          });
+        }
+        return;
+      }
+
+      final contact = await FlutterContacts.openExternalPick();
+      if (contact == null) return;
+      final full = await FlutterContacts.getContact(contact.id) ?? contact;
+      final phone = full.phones.isNotEmpty ? full.phones.first.number.trim() : '';
+      final name = full.displayName.trim().isNotEmpty
+          ? full.displayName.trim()
+          : (phone.isNotEmpty ? phone : context.tr('Member', 'عضو'));
+
+      if (mounted) {
+        setState(() {
+          _members.add(
+            GroupMember(
+              id: const Uuid().v4(),
+              name: name,
+              phone: phone,
+            ),
+          );
+          if (_errorText != null) _errorText = null;
+        });
+      }
+    } catch (_) {
+      await _addMemberManually();
+    }
   }
 
   Future<void> _onSave() async {
@@ -588,11 +676,11 @@ class _GroupEditorSheetState extends ConsumerState<_GroupEditorSheet> {
       });
       return;
     }
-    if (_selectedIds.isEmpty) {
+    if (_members.isEmpty) {
       setState(() {
         _errorText = context.tr(
-          'Please select at least one buddy for this group.',
-          'يرجى اختيار صديق واحد على الأقل لهذه المجموعة.',
+          'Please add at least one member to this group.',
+          'يرجى إضافة عضو واحد على الأقل لهذه المجموعة.',
         );
       });
       return;
@@ -607,7 +695,7 @@ class _GroupEditorSheetState extends ConsumerState<_GroupEditorSheet> {
       final group = SavedGroup(
         id: widget.existing?.id ?? const Uuid().v4(),
         name: name,
-        memberIds: _selectedIds.toList(),
+        members: List<GroupMember>.from(_members),
         createdAtUtc: widget.existing?.createdAtUtc ?? DateTime.now().toUtc(),
       );
       await ref.read(alarmRepositoryProvider).saveGroup(group);
@@ -631,7 +719,7 @@ class _GroupEditorSheetState extends ConsumerState<_GroupEditorSheet> {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom +
         MediaQuery.of(context).viewPadding.bottom;
-    final maxHeight = MediaQuery.of(context).size.height * 0.82;
+    final maxHeight = MediaQuery.of(context).size.height * 0.85;
 
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: maxHeight),
@@ -646,7 +734,7 @@ class _GroupEditorSheetState extends ConsumerState<_GroupEditorSheet> {
               children: [
                 Text(
                   widget.existing == null
-                      ? context.tr('Create Group', 'إنشاء مجموعة جديدة')
+                      ? context.tr('New Group', 'مجموعة جديدة')
                       : context.tr('Edit Group', 'تعديل المجموعة'),
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
@@ -669,10 +757,30 @@ class _GroupEditorSheetState extends ConsumerState<_GroupEditorSheet> {
               ),
             ),
             const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: _saving ? null : _addMemberManually,
+                    icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+                    label: Text(context.tr('Add by Name', 'إضافة بالاسم')),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _saving ? null : _pickMemberFromContacts,
+                    icon: const Icon(Icons.contacts_rounded, size: 18),
+                    label: Text(context.tr('From Contacts', 'من جهات الاتصال')),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             Text(
               context.tr(
-                'Select Buddies (${_selectedIds.length})',
-                'اختر الأصدقاء (${_selectedIds.length})',
+                'Members (${_members.length})',
+                'الأعضاء (${_members.length})',
               ),
               style: const TextStyle(
                 fontWeight: FontWeight.w700,
@@ -681,13 +789,13 @@ class _GroupEditorSheetState extends ConsumerState<_GroupEditorSheet> {
             ),
             const SizedBox(height: 6),
             Flexible(
-              child: widget.allBuddies.isEmpty
+              child: _members.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       child: Text(
                         context.tr(
-                          'No saved buddies yet. Add buddies first in the Buddies tab.',
-                          'لا يوجد أصدقاء محفوظون بعد. أضف أصدقاء أولاً من تبويب الأصدقاء.',
+                          'No members added yet. Add members by name & phone or pick from phone contacts.',
+                          'لم تتم إضافة أعضاء بعد. أضف الأعضاء بالاسم والرقم أو من جهات الاتصال.',
                         ),
                         textAlign: TextAlign.center,
                         style: TextStyle(
@@ -698,31 +806,38 @@ class _GroupEditorSheetState extends ConsumerState<_GroupEditorSheet> {
                     )
                   : ListView.builder(
                       shrinkWrap: true,
-                      itemCount: widget.allBuddies.length,
+                      itemCount: _members.length,
                       itemBuilder: (_, idx) {
-                        final b = widget.allBuddies[idx];
-                        final checked = _selectedIds.contains(b.id);
-                        return CheckboxListTile(
+                        final m = _members[idx];
+                        return ListTile(
                           dense: true,
                           contentPadding: EdgeInsets.zero,
-                          value: checked,
+                          leading: CircleAvatar(
+                            radius: 16,
+                            backgroundColor: AppTheme.groupTeal.withOpacity(0.16),
+                            child: Text(
+                              m.name.isNotEmpty ? m.name[0].toUpperCase() : '?',
+                              style: const TextStyle(
+                                color: AppTheme.groupTeal,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
                           title: Text(
-                            b.name,
+                            m.name,
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
-                          subtitle: b.phone.isNotEmpty ? Text(b.phone) : null,
-                          onChanged: _saving
-                              ? null
-                              : (val) {
-                                  setState(() {
-                                    if (val == true) {
-                                      _selectedIds.add(b.id);
-                                    } else {
-                                      _selectedIds.remove(b.id);
-                                    }
-                                    if (_errorText != null) _errorText = null;
-                                  });
-                                },
+                          subtitle: m.phone.isNotEmpty
+                              ? Text(m.phone, textDirection: TextDirection.ltr)
+                              : null,
+                          trailing: IconButton(
+                            icon: const Icon(Icons.remove_circle_outline,
+                                color: Colors.red, size: 20),
+                            onPressed: _saving
+                                ? null
+                                : () => setState(() => _members.removeAt(idx)),
+                          ),
                         );
                       },
                     ),
