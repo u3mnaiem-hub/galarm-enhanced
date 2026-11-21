@@ -100,6 +100,19 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
 
   @override
   Widget build(BuildContext context) {
+    // Re-attach Firestore shared-alarm listeners if the user signs in from Settings
+    // after HomeShell is already mounted.
+    ref.listen<String>(currentUserIdProvider, (prev, next) {
+      if (next != prev && next != 'local_user') {
+        _initFirebaseSyncAndFcm();
+      }
+    });
+    ref.listen<String>(currentUserPhoneProvider, (prev, next) {
+      if (next != prev && next.isNotEmpty) {
+        _initFirebaseSyncAndFcm();
+      }
+    });
+
     return Scaffold(
       body: IndexedStack(index: _index, children: _pages),
       floatingActionButton: _index == 0

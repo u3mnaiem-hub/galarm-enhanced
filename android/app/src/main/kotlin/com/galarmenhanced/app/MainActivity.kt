@@ -40,9 +40,6 @@ class MainActivity : FlutterActivity() {
 
         fun scheduleWithAlarmManager(context: Context, payload: JSONObject): Boolean {
             val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
-                return false
-            }
             val requestCode = payload.getInt("requestCode")
             val triggerAtMillis = payload.getLong("triggerAtMillis")
 
@@ -63,8 +60,37 @@ class MainActivity : FlutterActivity() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val info = AlarmManager.AlarmClockInfo(triggerAtMillis, showPendingIntent)
-            am.setAlarmClock(info, pendingIntent)
-            return true
+
+            return try {
+                am.setAlarmClock(info, pendingIntent)
+                true
+            } catch (_: SecurityException) {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        am.setExactAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAtMillis,
+                            pendingIntent
+                        )
+                    } else {
+                        am.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+                    }
+                    true
+                } catch (_: SecurityException) {
+                    // Fallback when exact alarm permission is revoked by user/OEM:
+                    // still schedule an allow-while-idle alarm instead of silently dropping it.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        am.setAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAtMillis,
+                            pendingIntent
+                        )
+                    } else {
+                        am.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+                    }
+                    true
+                }
+            }
         }
     }
 

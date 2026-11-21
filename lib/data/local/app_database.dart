@@ -157,6 +157,9 @@ class AppDatabase extends _$AppDatabase {
   Future<List<AlarmsTableData>> getActiveAlarms() =>
       (select(alarmsTable)..where((t) => t.isDeleted.equals(false))).get();
 
+  Future<AlarmsTableData?> getAlarmById(String alarmId) =>
+      (select(alarmsTable)..where((t) => t.id.equals(alarmId))).getSingleOrNull();
+
   Stream<List<AlarmsTableData>> watchActiveAlarms() =>
       (select(alarmsTable)
             ..where((t) => t.isDeleted.equals(false))

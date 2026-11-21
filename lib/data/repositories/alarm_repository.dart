@@ -25,7 +25,11 @@ class AlarmRepository {
     });
   }
 
-  Future<void> saveAlarm(Alarm alarm, {bool isOnline = false}) async {
+  Future<void> saveAlarm(
+    Alarm alarm, {
+    bool isOnline = false,
+    bool syncToRemote = true,
+  }) async {
     final nowUtc = DateTime.now().toUtc();
     final updated = alarm.copyWith(
       updatedAtUtc: nowUtc,
@@ -72,7 +76,7 @@ class AlarmRepository {
       );
     }
 
-    if (_remote != null && updated.type != AlarmType.personal) {
+    if (syncToRemote && _remote != null && updated.type != AlarmType.personal) {
       try {
         final allBuddies = await _db.getAllBuddies();
         final buddyPhoneById = {for (final b in allBuddies) b.id: b.phone};
@@ -92,32 +96,57 @@ class AlarmRepository {
   /// Saves an incoming buddy/group alarm received via FCM or Firestore into local SQLite
   /// and schedules it natively so it rings on this device without re-pushing to Firestore.
   Future<void> saveIncomingSharedAlarm(Alarm incoming) async {
+    final nowUtc = DateTime.now().toUtc();
+    final existing = await _db.getAlarmById(incoming.id);
+    if (existing != null &&
+        !existing.isDeleted &&
+        existing.startAtUtc.toUtc() == incoming.startAtUtc.toUtc() &&
+        (existing.state == AlarmState.done.name ||
+            existing.state == AlarmState.missed.name)) {
+      // Recipient already dismissed or missed this exact occurrence locally.
+      return;
+    }
+
+    var effectiveStartUtc = incoming.startAtUtc.toUtc();
+    // Handle minor clock skew or network delay (up to 90s) between sender and recipient phones
+    if (incoming.isEnabled &&
+        !incoming.repeatRule.isRecurring &&
+        effectiveStartUtc.isBefore(nowUtc) &&
+        nowUtc.difference(effectiveStartUtc).inSeconds <= 90) {
+      effectiveStartUtc = nowUtc.add(const Duration(seconds: 2));
+    }
+
+    final effectiveAlarm = incoming.copyWith(
+      startAtUtc: effectiveStartUtc,
+      state: incoming.isEnabled ? AlarmState.upcoming : incoming.state,
+    );
+
     await _db.upsertAlarm(
       AlarmsTableCompanion(
-        id: Value(incoming.id),
-        ownerId: Value(incoming.ownerId),
-        title: Value(incoming.title),
-        notes: Value(incoming.notes),
-        startAtUtc: Value(incoming.startAtUtc.toUtc()),
-        creatorTimezoneId: Value(incoming.creatorTimezoneId),
-        repeatRuleJson: Value(incoming.repeatRule.toJsonString()),
-        snoozeConfigJson: Value(incoming.snoozeConfig.toJsonString()),
-        ringtoneUri: Value(incoming.ringtoneUri),
-        volume: Value(incoming.volume),
-        gradualVolume: Value(incoming.gradualVolume),
-        vibrate: Value(incoming.vibrate),
-        ringOnVibrateSilent: Value(incoming.ringOnVibrateSilent),
-        alarmType: Value(incoming.type.name),
-        state: Value(incoming.state.name),
-        isEnabled: Value(incoming.isEnabled),
-        occurrenceCount: Value(incoming.occurrenceCount),
-        currentSnoozeCount: Value(incoming.currentSnoozeCount),
-        snoozedUntilUtc: Value(incoming.snoozedUntilUtc),
-        updatedAtUtc: Value(incoming.updatedAtUtc.toUtc()),
+        id: Value(effectiveAlarm.id),
+        ownerId: Value(effectiveAlarm.ownerId),
+        title: Value(effectiveAlarm.title),
+        notes: Value(effectiveAlarm.notes),
+        startAtUtc: Value(effectiveAlarm.startAtUtc.toUtc()),
+        creatorTimezoneId: Value(effectiveAlarm.creatorTimezoneId),
+        repeatRuleJson: Value(effectiveAlarm.repeatRule.toJsonString()),
+        snoozeConfigJson: Value(effectiveAlarm.snoozeConfig.toJsonString()),
+        ringtoneUri: Value(effectiveAlarm.ringtoneUri),
+        volume: Value(effectiveAlarm.volume),
+        gradualVolume: Value(effectiveAlarm.gradualVolume),
+        vibrate: Value(effectiveAlarm.vibrate),
+        ringOnVibrateSilent: Value(effectiveAlarm.ringOnVibrateSilent),
+        alarmType: Value(effectiveAlarm.type.name),
+        state: Value(effectiveAlarm.state.name),
+        isEnabled: Value(effectiveAlarm.isEnabled),
+        occurrenceCount: Value(effectiveAlarm.occurrenceCount),
+        currentSnoozeCount: Value(effectiveAlarm.currentSnoozeCount),
+        snoozedUntilUtc: Value(effectiveAlarm.snoozedUntilUtc),
+        updatedAtUtc: Value(effectiveAlarm.updatedAtUtc.toUtc()),
         isDeleted: const Value(false),
       ),
     );
-    await _scheduleOrCancelNative(incoming);
+    await _scheduleOrCancelNative(effectiveAlarm);
   }
 
   Future<void> deleteAlarm(String alarmId, {bool isOnline = false}) async {
@@ -314,7 +343,7 @@ class AlarmRepository {
       clearSnooze: true,
       updatedAtUtc: nowUtc,
     );
-    await saveAlarm(nextAlarm);
+    await saveAlarm(nextAlarm, syncToRemote: false);
     if (alarm.type == AlarmType.buddy || alarm.type == AlarmType.group) {
       await _db.upsertNotification(
         NotificationsTableCompanion(
@@ -358,7 +387,7 @@ class AlarmRepository {
       snoozedUntilUtc: snoozeTarget,
       updatedAtUtc: nowUtc,
     );
-    await saveAlarm(updated);
+    await saveAlarm(updated, syncToRemote: false);
     await _native.stopRinging();
   }
 
@@ -389,7 +418,7 @@ class AlarmRepository {
       clearSnooze: true,
       updatedAtUtc: nowUtc,
     );
-    await saveAlarm(nextAlarm);
+    await saveAlarm(nextAlarm, syncToRemote: false);
     if (alarm.type == AlarmType.buddy || alarm.type == AlarmType.group) {
       await _db.upsertNotification(
         NotificationsTableCompanion(
@@ -475,7 +504,7 @@ class AlarmRepository {
           updatedAtUtc: nowUtc,
         );
         alarmMap[alarmId] = updatedAlarm;
-        await saveAlarm(updatedAlarm);
+        await saveAlarm(updatedAlarm, syncToRemote: false);
       }
     }
   }

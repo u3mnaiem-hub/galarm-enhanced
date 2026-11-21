@@ -236,54 +236,74 @@ class AlarmRingingService : Service() {
         gradual: Boolean,
         ringOnVibrateSilent: Boolean
     ) {
-        try {
-            val defaultUri: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            val uri: Uri = when {
-                ringtoneUri == "default" || ringtoneUri == "chime" || ringtoneUri == "radar" || ringtoneUri.isBlank() -> defaultUri
-                ringtoneUri.startsWith("/") -> {
-                    val f = java.io.File(ringtoneUri)
-                    if (f.exists()) Uri.fromFile(f) else defaultUri
-                }
-                else -> Uri.parse(ringtoneUri)
-            }
+        val candidates = mutableListOf<Uri>()
+        val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+        val ringtoneDefaultUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        val notifUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
-            val usage = if (ringOnVibrateSilent) {
-                AudioAttributes.USAGE_ALARM
+        if (ringtoneUri.isNotBlank() &&
+            ringtoneUri != "default" &&
+            ringtoneUri != "chime" &&
+            ringtoneUri != "radar"
+        ) {
+            if (ringtoneUri.startsWith("/")) {
+                val f = java.io.File(ringtoneUri)
+                if (f.exists()) candidates.add(Uri.fromFile(f))
             } else {
-                AudioAttributes.USAGE_NOTIFICATION_RINGTONE
+                try {
+                    candidates.add(Uri.parse(ringtoneUri))
+                } catch (_: Exception) {
+                }
             }
+        }
+        if (alarmUri != null) candidates.add(alarmUri)
+        if (ringtoneDefaultUri != null) candidates.add(ringtoneDefaultUri)
+        if (notifUri != null) candidates.add(notifUri)
 
-            mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(usage)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                setDataSource(this@AlarmRingingService, uri)
-                isLooping = true
-                prepare()
-                val initialVol = if (gradual) 0.1f else targetVolume
-                setVolume(initialVol, initialVol)
-                start()
-            }
+        val usage = if (ringOnVibrateSilent) {
+            AudioAttributes.USAGE_ALARM
+        } else {
+            AudioAttributes.USAGE_NOTIFICATION_RINGTONE
+        }
 
-            if (gradual) {
-                volumeStep = 0.1f
-                val rampRunnable = object : Runnable {
-                    override fun run() {
-                        volumeStep = (volumeStep + 0.1f).coerceAtMost(targetVolume)
-                        mediaPlayer?.setVolume(volumeStep, volumeStep)
-                        if (volumeStep < targetVolume) {
-                            handler.postDelayed(this, 1500L)
+        for (uri in candidates) {
+            var player: MediaPlayer? = null
+            try {
+                player = MediaPlayer().apply {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(usage)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    )
+                    setDataSource(this@AlarmRingingService, uri)
+                    isLooping = true
+                    prepare()
+                    val initialVol = if (gradual) 0.1f else targetVolume
+                    setVolume(initialVol, initialVol)
+                    start()
+                }
+                mediaPlayer = player
+                if (gradual) {
+                    volumeStep = 0.1f
+                    val rampRunnable = object : Runnable {
+                        override fun run() {
+                            volumeStep = (volumeStep + 0.1f).coerceAtMost(targetVolume)
+                            mediaPlayer?.setVolume(volumeStep, volumeStep)
+                            if (volumeStep < targetVolume) {
+                                handler.postDelayed(this, 1500L)
+                            }
                         }
                     }
+                    handler.postDelayed(rampRunnable, 1500L)
                 }
-                handler.postDelayed(rampRunnable, 1500L)
+                return
+            } catch (_: Exception) {
+                try {
+                    player?.release()
+                } catch (_: Exception) {
+                }
             }
-        } catch (_: Exception) {
-            // Fallback: ensure service continues even if custom URI is unavailable
         }
     }
 
