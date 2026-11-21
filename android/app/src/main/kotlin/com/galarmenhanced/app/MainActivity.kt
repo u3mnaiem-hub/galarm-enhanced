@@ -22,6 +22,7 @@ import androidx.core.content.FileProvider
 import com.galarmenhanced.app.alarm.AlarmReceiver
 import com.galarmenhanced.app.alarm.AlarmRepeatHelper
 import com.galarmenhanced.app.alarm.AlarmRingingService
+import com.galarmenhanced.app.alarm.SharedAlarmSyncService
 import com.galarmenhanced.app.voice.VoiceAssistantChannel
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -228,6 +229,21 @@ class MainActivity : FlutterActivity() {
                         val ok = shareBackupFile(fileName, content)
                         result.success(ok)
                     }
+                    "startSharedAlarmSync" -> {
+                        val projectId = call.argument<String>("projectId") ?: ""
+                        val uid = call.argument<String>("uid") ?: ""
+                        val phone = call.argument<String>("phone") ?: ""
+                        val idToken = call.argument<String>("idToken") ?: ""
+                        getSharedPreferences("galarm_native_store", Context.MODE_PRIVATE)
+                            .edit()
+                            .putString("sync_project_id", projectId)
+                            .putString("sync_uid", uid)
+                            .putString("sync_phone", phone)
+                            .putString("sync_id_token", idToken)
+                            .apply()
+                        SharedAlarmSyncService.startIfConfigured(this)
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -312,8 +328,9 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun scheduleExactAlarm(args: Map<*, *>): Boolean {
-        val requestCode = (args["requestCode"] as? Number)?.toInt() ?: return false
+        val rawRequestCode = (args["requestCode"] as? Number)?.toInt() ?: return false
         val alarmId = args["alarmId"] as? String ?: return false
+        val requestCode = if (alarmId.isNotBlank()) alarmId.hashCode() else rawRequestCode
         val title = args["title"] as? String ?: "Alarm"
         val notes = args["notes"] as? String ?: ""
         val triggerAtMillis = (args["triggerAtMillis"] as? Number)?.toLong() ?: return false
@@ -353,17 +370,21 @@ class MainActivity : FlutterActivity() {
             put("startAtMillis", startAtMillis)
             put("occurrenceCount", occurrenceCount)
         }
-        prefs.edit().putString("alarm_$alarmId", payload.toString()).apply()
+        prefs.edit()
+            .putString("alarm_$alarmId", payload.toString())
+            .putLong("synced_shared_$alarmId", startAtMillis)
+            .apply()
 
         return scheduleWithAlarmManager(this, payload)
     }
 
     private fun cancelAlarm(requestCode: Int, alarmId: String) {
         val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val effectiveCode = if (alarmId.isNotBlank()) alarmId.hashCode() else requestCode
         val intent = Intent(this, AlarmReceiver::class.java)
         val pi = PendingIntent.getBroadcast(
             this,
-            requestCode,
+            effectiveCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

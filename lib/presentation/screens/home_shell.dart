@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/remote/fcm_alarm_service.dart';
+import '../../data/remote/firestore_service.dart';
 import '../../domain/entities/alarm.dart';
 import '../providers/app_providers.dart';
 import 'alarms_tab.dart';
@@ -54,6 +57,26 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
       firestore: fs,
       repo: repo,
     );
+
+    // Start the native Android background sync service so buddy & group alarms
+    // are received and scheduled even while the phone is locked or app is closed.
+    try {
+      if (Firebase.apps.isNotEmpty) {
+        final projectId = Firebase.app().options.projectId;
+        final normalizedPhone =
+            phone.isNotEmpty ? FirestoreService.normalizePhoneNumber(phone) : '';
+        String idToken = '';
+        try {
+          idToken = await FirebaseAuth.instance.currentUser?.getIdToken() ?? '';
+        } catch (_) {}
+        await ref.read(nativeAlarmChannelProvider).startSharedAlarmSync(
+              projectId: projectId,
+              uid: uid,
+              phone: normalizedPhone,
+              idToken: idToken,
+            );
+      }
+    } catch (_) {}
 
     _sharedByUidSub?.cancel();
     _sharedByUidSub = fs.watchSharedAlarmsForUser(uid).listen((alarms) async {

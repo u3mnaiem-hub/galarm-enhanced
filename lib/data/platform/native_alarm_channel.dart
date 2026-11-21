@@ -72,6 +72,22 @@ class NativeAlarmChannel {
     await _channel.invokeMethod('stopRinging');
   }
 
+  Future<void> startSharedAlarmSync({
+    required String projectId,
+    required String uid,
+    required String phone,
+    String idToken = '',
+  }) async {
+    try {
+      await _channel.invokeMethod('startSharedAlarmSync', {
+        'projectId': projectId,
+        'uid': uid,
+        'phone': phone,
+        'idToken': idToken,
+      });
+    } catch (_) {}
+  }
+
   Future<bool> canScheduleExactAlarms() async {
     return await _channel.invokeMethod<bool>('canScheduleExactAlarms') ?? false;
   }
