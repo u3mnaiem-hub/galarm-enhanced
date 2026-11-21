@@ -11,8 +11,14 @@ class AlarmRepository {
   final AppDatabase _db;
   final NativeAlarmChannel _native;
   final FirestoreService? _remote;
+  final String Function()? _getCurrentUid;
 
-  AlarmRepository(this._db, this._native, [this._remote]);
+  AlarmRepository(
+    this._db,
+    this._native, [
+    this._remote,
+    this._getCurrentUid,
+  ]);
 
   Stream<List<Alarm>> watchAlarms() {
     return _db.watchActiveAlarms().asyncMap((rows) async {
@@ -543,6 +549,17 @@ class AlarmRepository {
   }
 
   Future<void> _scheduleOrCancelNative(Alarm alarm) async {
+    // Buddy alarms created by this user are meant to ring ONLY on the buddy's phone,
+    // not on the creator's own phone. (Group alarms ring on everyone's phone.)
+    final myUid = _getCurrentUid?.call();
+    if (alarm.type == AlarmType.buddy &&
+        myUid != null &&
+        myUid.isNotEmpty &&
+        alarm.ownerId == myUid) {
+      await _native.cancelAlarm(alarm.id.hashCode, alarm.id);
+      return;
+    }
+
     final nextFireUtc = RecurrenceCalculator.computeNextFireUtc(alarm);
     if (nextFireUtc == null || !alarm.isEnabled) {
       await _native.cancelAlarm(alarm.id.hashCode, alarm.id);

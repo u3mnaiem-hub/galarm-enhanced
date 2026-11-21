@@ -33,6 +33,7 @@ final alarmRepositoryProvider = Provider<AlarmRepository>((ref) {
     ref.watch(appDatabaseProvider),
     ref.watch(nativeAlarmChannelProvider),
     ref.watch(firestoreServiceProvider),
+    () => ref.read(currentUserIdProvider),
   );
 });
 
