@@ -2,13 +2,10 @@ import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
-import '../../data/remote/firestore_service.dart';
-import '../../domain/entities/alarm.dart';
+import 'package:uuid/uuid.dart';
+import '../../domain/entities/buddy_group.dart';
 import '../providers/app_providers.dart';
 import '../theme/app_theme.dart';
-import 'alarm_chat_screen.dart';
-import 'alarm_editor_screen.dart';
 
 class ContactsGroupsTab extends ConsumerStatefulWidget {
   const ContactsGroupsTab({super.key});
@@ -18,423 +15,622 @@ class ContactsGroupsTab extends ConsumerStatefulWidget {
 }
 
 class _ContactsGroupsTabState extends ConsumerState<ContactsGroupsTab> {
-  bool _loading = false;
-  bool _permissionDenied = false;
-  List<UserProfile> _matchedUsers = [];
-  List<Contact> _inviteContacts = [];
+  Future<void> _showBuddyDialog({SavedBuddy? existing}) async {
+    final nameCtrl = TextEditingController(text: existing?.name ?? '');
+    final phoneCtrl = TextEditingController(text: existing?.phone ?? '');
+    final saved = await showDialog<SavedBuddy>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          existing == null
+              ? context.tr('Add Buddy', 'إضافة صديق جديد')
+              : context.tr('Edit Buddy', 'تعديل بيانات الصديق'),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: context.tr('Name', 'الاسم'),
+                prefixIcon: const Icon(Icons.person_outline),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              textDirection: TextDirection.ltr,
+              decoration: InputDecoration(
+                labelText: context.tr('Phone Number', 'رقم الهاتف'),
+                prefixIcon: const Icon(Icons.phone_outlined),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(context.tr('Cancel', 'إلغاء')),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = nameCtrl.text.trim();
+              if (name.isEmpty) return;
+              Navigator.of(ctx).pop(
+                SavedBuddy(
+                  id: existing?.id ?? const Uuid().v4(),
+                  name: name,
+                  phone: phoneCtrl.text.trim(),
+                  createdAtUtc: existing?.createdAtUtc ?? DateTime.now().toUtc(),
+                ),
+              );
+            },
+            child: Text(context.tr('Save', 'حفظ')),
+          ),
+        ],
+      ),
+    );
+    nameCtrl.dispose();
+    phoneCtrl.dispose();
 
-  Future<void> _loadContacts() async {
-    setState(() {
-      _loading = true;
-      _permissionDenied = false;
-    });
-    final granted = await FlutterContacts.requestPermission(readonly: true);
-    if (!granted) {
-      setState(() {
-        _loading = false;
-        _permissionDenied = true;
-      });
-      return;
-    }
-
-    final contacts = await FlutterContacts.getContacts(withProperties: true);
-    final hashToContact = <String, Contact>{};
-    for (final c in contacts) {
-      for (final p in c.phones) {
-        final h = FirestoreService.hashPhoneNumber(p.number);
-        hashToContact[h] = c;
+    if (saved != null) {
+      await ref.read(alarmRepositoryProvider).saveBuddy(saved);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.tr(
+                'Saved buddy "${saved.name}"',
+                'تم حفظ الصديق "${saved.name}"',
+              ),
+            ),
+          ),
+        );
       }
-    }
-
-    final fs = ref.read(firestoreServiceProvider);
-    final matched = fs != null
-        ? await fs.matchPhoneHashes(hashToContact.keys.toList())
-        : <UserProfile>[];
-    final matchedHashes = matched.map((u) => u.phoneHash).toSet();
-
-    final nonUsers = contacts.where((c) {
-      return c.phones.isNotEmpty &&
-          c.phones.every(
-            (p) => !matchedHashes
-                .contains(FirestoreService.hashPhoneNumber(p.number)),
-          );
-    }).toList();
-
-    if (mounted) {
-      setState(() {
-        _matchedUsers = matched;
-        _inviteContacts = nonUsers;
-        _loading = false;
-      });
     }
   }
 
-  Future<void> _sendSmsInvite(Contact c) async {
-    final bodyText = context.tr(
-      'Join me on U3m Alarm so we can share group & buddy alarms!',
-      'انضم إلي على منبه U3m لنتشارك منبهات المجموعات والأصدقاء!',
+  Future<void> _pickBuddyFromContacts() async {
+    try {
+      final granted = await FlutterContacts.requestPermission(readonly: true);
+      if (!granted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                context.tr(
+                  'Contacts permission is required to pick a buddy.',
+                  'مطلوب إذن جهات الاتصال لاختيار صديق من الهاتف.',
+                ),
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      final contact = await FlutterContacts.openExternalPick();
+      if (contact == null) return;
+      final full = await FlutterContacts.getContact(contact.id) ?? contact;
+      final phone = full.phones.isNotEmpty ? full.phones.first.number.trim() : '';
+      final name = full.displayName.trim().isNotEmpty
+          ? full.displayName.trim()
+          : (phone.isNotEmpty ? phone : context.tr('Buddy', 'صديق'));
+
+      final buddy = SavedBuddy(
+        id: const Uuid().v4(),
+        name: name,
+        phone: phone,
+        createdAtUtc: DateTime.now().toUtc(),
+      );
+      await ref.read(alarmRepositoryProvider).saveBuddy(buddy);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.tr(
+                'Added "${buddy.name}" to Buddies',
+                'تمت إضافة "${buddy.name}" إلى قائمة الأصدقاء',
+              ),
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      await _showBuddyDialog();
+    }
+  }
+
+  Future<void> _confirmDeleteBuddy(SavedBuddy buddy) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.tr('Delete Buddy', 'حذف الصديق')),
+        content: Text(
+          context.tr(
+            'Delete "${buddy.name}" from saved buddies?',
+            'هل تريد حذف "${buddy.name}" من قائمة الأصدقاء؟',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(context.tr('Cancel', 'إلغاء')),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(context.tr('Delete', 'حذف')),
+          ),
+        ],
+      ),
     );
-    final phone = c.phones.first.number;
-    final uri = Uri(
-      scheme: 'sms',
-      path: phone,
-      queryParameters: {'body': bodyText},
+    if (ok == true) {
+      await ref.read(alarmRepositoryProvider).deleteBuddy(buddy.id);
+    }
+  }
+
+  Future<void> _showGroupDialog(
+    List<SavedBuddy> allBuddies, {
+    SavedGroup? existing,
+  }) async {
+    final nameCtrl = TextEditingController(text: existing?.name ?? '');
+    final selectedIds = <String>{...(existing?.memberIds ?? const <String>[])};
+
+    final saved = await showDialog<SavedGroup>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(
+            existing == null
+                ? context.tr('Create Group', 'إنشاء مجموعة جديدة')
+                : context.tr('Edit Group', 'تعديل المجموعة'),
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      labelText: context.tr('Group Name', 'اسم المجموعة'),
+                      prefixIcon: const Icon(Icons.groups_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    context.tr(
+                      'Select Buddies (${selectedIds.length})',
+                      'اختر الأصدقاء (${selectedIds.length})',
+                    ),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  if (allBuddies.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Text(
+                        context.tr(
+                          'No saved buddies yet. Add buddies first in the Buddies tab.',
+                          'لا يوجد أصدقاء محفوظون بعد. أضف أصدقاء أولاً من تبويب الأصدقاء.',
+                        ),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    )
+                  else
+                    ...allBuddies.map(
+                      (b) => CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        value: selectedIds.contains(b.id),
+                        title: Text(b.name),
+                        subtitle: b.phone.isNotEmpty ? Text(b.phone) : null,
+                        onChanged: (checked) {
+                          setDialogState(() {
+                            if (checked == true) {
+                              selectedIds.add(b.id);
+                            } else {
+                              selectedIds.remove(b.id);
+                            }
+                          });
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(context.tr('Cancel', 'إلغاء')),
+            ),
+            FilledButton(
+              onPressed: () {
+                final name = nameCtrl.text.trim();
+                if (name.isEmpty) return;
+                Navigator.of(ctx).pop(
+                  SavedGroup(
+                    id: existing?.id ?? const Uuid().v4(),
+                    name: name,
+                    memberIds: selectedIds.toList(),
+                    createdAtUtc:
+                        existing?.createdAtUtc ?? DateTime.now().toUtc(),
+                  ),
+                );
+              },
+              child: Text(context.tr('Save', 'حفظ')),
+            ),
+          ],
+        ),
+      ),
     );
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
+    nameCtrl.dispose();
+
+    if (saved != null) {
+      await ref.read(alarmRepositoryProvider).saveGroup(saved);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.tr(
+                'Saved group "${saved.name}"',
+                'تم حفظ المجموعة "${saved.name}"',
+              ),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _confirmDeleteGroup(SavedGroup group) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.tr('Delete Group', 'حذف المجموعة')),
+        content: Text(
+          context.tr(
+            'Delete group "${group.name}"?',
+            'هل تريد حذف المجموعة "${group.name}"؟',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(context.tr('Cancel', 'إلغاء')),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(context.tr('Delete', 'حذف')),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await ref.read(alarmRepositoryProvider).deleteGroup(group.id);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final alarmsAsync = ref.watch(alarmsStreamProvider);
+    final buddiesAsync = ref.watch(buddiesStreamProvider);
+    final groupsAsync = ref.watch(groupsStreamProvider);
+    final buddies = buddiesAsync.valueOrNull ?? const <SavedBuddy>[];
+    final buddyMap = {for (final b in buddies) b.id: b};
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(context.tr('Groups & Buddy', 'المجموعات والأصدقاء')),
-        actions: [
-          IconButton(
-            onPressed: _loadContacts,
-            icon: const Icon(Icons.sync),
-            tooltip: context.tr('Match Phone Contacts', 'مطابقة جهات الاتصال'),
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 32),
-        children: [
-          // Quick Create Group / Buddy Cards
-          Row(
-            children: [
-              Expanded(
-                child: _QuickSocialCard(
-                  icon: Icons.groups_rounded,
-                  title: context.tr('New Group', 'مجموعة جديدة'),
-                  subtitle: context.tr('Shared alarm', 'منبه مشترك'),
-                  color: AppTheme.groupTeal,
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          const AlarmEditorScreen(initialType: AlarmType.group),
-                    ),
-                  ),
-                ),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(context.tr('Buddies & Groups', 'الأصدقاء والمجموعات')),
+          bottom: TabBar(
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+            indicatorColor: Colors.white,
+            tabs: [
+              Tab(
+                icon: const Icon(Icons.people_alt_rounded, size: 18),
+                text: context.tr('Buddies (${buddies.length})', 'الأصدقاء (${buddies.length})'),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _QuickSocialCard(
-                  icon: Icons.people_alt_rounded,
-                  title: context.tr('New Buddy', 'صديق جديد'),
-                  subtitle: context.tr('Accountability', 'متابعة صديق'),
-                  color: AppTheme.buddyPurple,
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          const AlarmEditorScreen(initialType: AlarmType.buddy),
-                    ),
-                  ),
+              Tab(
+                icon: const Icon(Icons.groups_rounded, size: 18),
+                text: context.tr(
+                  'Groups (${groupsAsync.valueOrNull?.length ?? 0})',
+                  'المجموعات (${groupsAsync.valueOrNull?.length ?? 0})',
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 18),
-
-          // Active Group & Buddy Alarms
-          Text(
-            context.tr('Active Group & Buddy Alarms', 'منبهات المجموعات والأصدقاء'),
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-          const SizedBox(height: 10),
-          alarmsAsync.when(
-            loading: () => const Padding(
-              padding: EdgeInsets.all(16),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-            error: (e, _) => Text('$e'),
-            data: (alarms) {
-              final social = alarms
-                  .where((a) =>
-                      a.type == AlarmType.group || a.type == AlarmType.buddy)
-                  .toList();
-              if (social.isEmpty) {
-                return Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      context.tr(
-                        'No group or buddy alarms yet. Use the buttons above to create one!',
-                        'لا توجد منبهات مجموعات أو أصدقاء بعد. استخدم الأزرار بالأعلى لإنشاء منبه!',
-                      ),
-                      style: TextStyle(color: cs.onSurfaceVariant),
-                    ),
-                  ),
-                );
-              }
-              return Column(
-                children: social.map((alarm) {
-                  final isBuddy = alarm.type == AlarmType.buddy;
-                  final accent =
-                      isBuddy ? AppTheme.buddyPurple : AppTheme.groupTeal;
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF16223A) : Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: accent.withOpacity(isDark ? 0.45 : 0.30),
-                        width: 1.1,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: isDark
-                              ? Colors.black.withOpacity(0.75)
-                              : const Color(0xFF0F172A).withOpacity(0.24),
-                          blurRadius: 14,
-                          spreadRadius: 1,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 6,
-                      ),
-                      leading: CircleAvatar(
-                        backgroundColor: accent.withOpacity(0.16),
-                        child: Icon(
-                          isBuddy
-                              ? Icons.people_alt_rounded
-                              : Icons.groups_rounded,
-                          color: accent,
-                        ),
-                      ),
-                      title: Text(
-                        alarm.title,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      subtitle: Text(
-                        alarm.participants.isNotEmpty
-                            ? alarm.participants
-                                .map((p) => p.displayName)
-                                .join(' • ')
-                            : (isBuddy
-                                ? context.tr('Buddy Alarm', 'منبه صديق')
-                                : context.tr('Group Alarm', 'منبه مجموعة')),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: context.tr('Chat', 'محادثة'),
-                            icon: Icon(Icons.chat_bubble_outline, color: accent),
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => AlarmChatScreen(alarm: alarm),
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: context.tr('Edit', 'تعديل'),
-                            icon: Icon(Icons.edit_outlined, color: cs.primary),
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    AlarmEditorScreen(existing: alarm),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              );
-            },
-          ),
-
-          const Divider(height: 28),
-
-          // Contacts & Invites Section
-          Text(
-            context.tr('Contacts & Invites', 'جهات الاتصال والدعوات'),
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-          const SizedBox(height: 10),
-          if (_loading)
-            const Padding(
-              padding: EdgeInsets.all(20),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_permissionDenied)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
+        ),
+        body: TabBarView(
+          children: [
+            // TAB 1: Saved Buddies
+            ListView(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 32),
+              children: [
+                Row(
                   children: [
-                    Text(
-                      context.tr(
-                        'Contacts permission is only used to match phone numbers (hashed) with friends and send SMS invites.',
-                        'يُستخدم إذن جهات الاتصال فقط لمطابقة أرقام الهواتف (مشفرة) مع الأصدقاء وإرسال دعوات SMS.',
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton(
-                      onPressed: _loadContacts,
-                      child: Text(
-                        context.tr(
-                          'Grant Contacts Access',
-                          'السماح بالوصول لجهات الاتصال',
+                    Expanded(
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.buddyPurple,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
+                        onPressed: () => _showBuddyDialog(),
+                        icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+                        label: Text(context.tr('Add Buddy', 'إضافة صديق')),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton.tonalIcon(
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: _pickBuddyFromContacts,
+                        icon: const Icon(Icons.contacts_rounded, size: 18),
+                        label: Text(context.tr('From Contacts', 'من جهات الاتصال')),
                       ),
                     ),
                   ],
                 ),
-              ),
-            )
-          else ...[
-            if (_matchedUsers.isEmpty && _inviteContacts.isEmpty)
-              Center(
-                child: FilledButton.icon(
-                  onPressed: _loadContacts,
-                  icon: const Icon(Icons.contacts),
-                  label: Text(
-                    context.tr(
-                      'Find Friends from Contacts',
-                      'ابحث عن الأصدقاء من جهات الاتصال',
-                    ),
-                  ),
-                ),
-              ),
-            if (_matchedUsers.isNotEmpty) ...[
-              Text(
-                context.tr('On U3m Alarm', 'على منبه U3m'),
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 8),
-              ..._matchedUsers.map(
-                (u) => Card(
-                  child: ListTile(
-                    leading: const CircleAvatar(child: Icon(Icons.person)),
-                    title: Text(u.displayName),
-                    subtitle: Text(
-                      '${context.tr('Timezone', 'المنطقة الزمنية')}: ${u.timezoneId}',
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-            if (_inviteContacts.isNotEmpty) ...[
-              Text(
-                context.tr('Invite via SMS', 'دعوة عبر SMS'),
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 8),
-              ..._inviteContacts.take(30).map(
-                    (c) => Card(
-                      child: ListTile(
-                        leading:
-                            const CircleAvatar(child: Icon(Icons.person_add)),
-                        title: Text(c.displayName),
-                        subtitle: Text(c.phones.first.number),
-                        trailing: OutlinedButton(
-                          onPressed: () => _sendSmsInvite(c),
-                          child: Text(context.tr('Invite', 'دعوة')),
+                const SizedBox(height: 16),
+                buddiesAsync.when(
+                  loading: () => const Center(child: CircularProgressIndicator()),
+                  error: (e, _) => Text('$e'),
+                  data: (list) {
+                    if (list.isEmpty) {
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.people_outline_rounded,
+                                size: 46,
+                                color: AppTheme.buddyPurple.withOpacity(0.55),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                context.tr(
+                                  'No saved buddies yet. Add a buddy by name & phone or pick from contacts.',
+                                  'لا يوجد أصدقاء محفوظون بعد. أضف صديقاً بالاسم والرقم أو من جهات الاتصال.',
+                                ),
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: cs.onSurfaceVariant),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ),
-                  ),
-            ],
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _QuickSocialCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _QuickSocialCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [color, color.withOpacity(0.80)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.45),
-            blurRadius: 14,
-            spreadRadius: 1,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(18),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.20),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, color: Colors.white, size: 22),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.88),
-                    fontSize: 11.5,
-                  ),
+                      );
+                    }
+                    return Column(
+                      children: list
+                          .map(
+                            (buddy) => Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? const Color(0xFF16223A)
+                                    : Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: AppTheme.buddyPurple
+                                      .withOpacity(isDark ? 0.45 : 0.30),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: isDark
+                                        ? Colors.black.withOpacity(0.75)
+                                        : const Color(0xFF0F172A)
+                                            .withOpacity(0.24),
+                                    blurRadius: 14,
+                                    spreadRadius: 1,
+                                    offset: const Offset(0, 6),
+                                  ),
+                                ],
+                              ),
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 6,
+                                ),
+                                leading: CircleAvatar(
+                                  backgroundColor:
+                                      AppTheme.buddyPurple.withOpacity(0.16),
+                                  child: Text(
+                                    buddy.name.isNotEmpty
+                                        ? buddy.name[0].toUpperCase()
+                                        : '?',
+                                    style: const TextStyle(
+                                      color: AppTheme.buddyPurple,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                title: Text(
+                                  buddy.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                subtitle: buddy.phone.isNotEmpty
+                                    ? Text(
+                                        buddy.phone,
+                                        textDirection: TextDirection.ltr,
+                                      )
+                                    : null,
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      tooltip: context.tr('Edit', 'تعديل'),
+                                      icon: Icon(Icons.edit_outlined,
+                                          color: cs.primary),
+                                      onPressed: () =>
+                                          _showBuddyDialog(existing: buddy),
+                                    ),
+                                    IconButton(
+                                      tooltip: context.tr('Delete', 'حذف'),
+                                      icon: const Icon(Icons.delete_outline,
+                                          color: Colors.red),
+                                      onPressed: () =>
+                                          _confirmDeleteBuddy(buddy),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    );
+                  },
                 ),
               ],
             ),
-          ),
+
+            // TAB 2: Saved Groups
+            ListView(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 32),
+              children: [
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.groupTeal,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  onPressed: () => _showGroupDialog(buddies),
+                  icon: const Icon(Icons.group_add_rounded, size: 20),
+                  label: Text(context.tr('Create New Group', 'إنشاء مجموعة جديدة')),
+                ),
+                const SizedBox(height: 16),
+                groupsAsync.when(
+                  loading: () => const Center(child: CircularProgressIndicator()),
+                  error: (e, _) => Text('$e'),
+                  data: (list) {
+                    if (list.isEmpty) {
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.groups_outlined,
+                                size: 46,
+                                color: AppTheme.groupTeal.withOpacity(0.55),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                context.tr(
+                                  'No saved groups yet. Create a group and add your saved buddies to it.',
+                                  'لا توجد مجموعات محفوظة بعد. أنشئ مجموعة وأضف إليها أصدقاءك المحفوظين.',
+                                ),
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: cs.onSurfaceVariant),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    return Column(
+                      children: list.map((group) {
+                        final memberNames = group.memberIds
+                            .map((id) => buddyMap[id]?.name)
+                            .whereType<String>()
+                            .toList();
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? const Color(0xFF16223A)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: AppTheme.groupTeal
+                                  .withOpacity(isDark ? 0.45 : 0.30),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: isDark
+                                    ? Colors.black.withOpacity(0.75)
+                                    : const Color(0xFF0F172A).withOpacity(0.24),
+                                blurRadius: 14,
+                                spreadRadius: 1,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            leading: CircleAvatar(
+                              backgroundColor:
+                                  AppTheme.groupTeal.withOpacity(0.16),
+                              child: const Icon(
+                                Icons.groups_rounded,
+                                color: AppTheme.groupTeal,
+                              ),
+                            ),
+                            title: Text(
+                              group.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            subtitle: Text(
+                              memberNames.isNotEmpty
+                                  ? '${memberNames.length} • ${memberNames.join('، ')}'
+                                  : context.tr('No members yet', 'لا يوجد أعضاء بعد'),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  tooltip: context.tr('Edit', 'تعديل'),
+                                  icon: Icon(Icons.edit_outlined,
+                                      color: cs.primary),
+                                  onPressed: () => _showGroupDialog(
+                                    buddies,
+                                    existing: group,
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: context.tr('Delete', 'حذف'),
+                                  icon: const Icon(Icons.delete_outline,
+                                      color: Colors.red),
+                                  onPressed: () => _confirmDeleteGroup(group),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

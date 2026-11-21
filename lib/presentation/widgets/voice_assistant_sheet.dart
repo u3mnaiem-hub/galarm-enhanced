@@ -66,6 +66,7 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
   RepeatRule _draftRepeat = const RepeatRule();
   AlarmType _draftType = AlarmType.personal;
   bool _waitingForPastTimeTomorrowConfirm = false;
+  bool _isSavingOrSaved = false;
 
   String get _fullLiveTranscript {
     final parts = [_accumulatedText.trim(), _currentPartial.trim()]
@@ -107,7 +108,9 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
     _textFallbackCtrl.dispose();
     final voice = ref.read(nativeVoiceChannelProvider);
     voice.cancelListening();
-    voice.stopSpeaking();
+    if (!_isSavingOrSaved) {
+      voice.stopSpeaking();
+    }
     super.dispose();
   }
 
@@ -272,7 +275,7 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
   }
 
   Future<void> _onVoiceEvent(VoiceEvent e) async {
-    if (!mounted) return;
+    if (!mounted || _isSavingOrSaved) return;
 
     if (e.type == 'tts_done') {
       _ttsFallbackTimer?.cancel();
@@ -473,7 +476,7 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
       if (reply.type == VoiceReplyType.confirm) {
         _waitingForPastTimeTomorrowConfirm = false;
         _draftDateTime = _draftDateTime!.add(const Duration(days: 1));
-        await _presentConfirmation();
+        await _saveConfirmedAlarm();
         return;
       }
       if (reply.type == VoiceReplyType.modifyTime &&
@@ -490,7 +493,7 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
           newHour,
           newMin,
         );
-        await _presentConfirmation();
+        await _saveConfirmedAlarm();
         return;
       }
       if (reply.type == VoiceReplyType.edit) {
@@ -566,34 +569,27 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
       return;
     }
 
-    final skipConfirm = ref.read(skipVoiceConfirmationProvider);
-    if (skipConfirm) {
-      await _saveConfirmedAlarm();
-    } else {
-      await _presentConfirmation();
-    }
+    // Automatically create, save, and close as soon as the alarm is understood — no confirmation or Save tap needed!
+    await _saveConfirmedAlarm();
   }
 
   Future<void> _presentConfirmation() async {
-    final dt = _draftDateTime!;
-    final title = _draftTitle ?? 'منبه صوتي';
-    final confirmSpeech = VoiceAlarmParser.buildEgyptianConfirmationPrompt(
-      title: title,
-      localDt: dt,
-      repeatRule: _draftRepeat,
-    );
-
-    setState(() {
-      _phase = _VoicePhase.awaitingConfirmation;
-      _statusMessage = confirmSpeech;
-    });
-
-    await _speakAndMaybeListen(confirmSpeech, listenAfter: true);
+    await _saveConfirmedAlarm();
   }
 
   Future<void> _saveConfirmedAlarm() async {
+    if (_isSavingOrSaved) return;
     final dt = _draftDateTime;
     if (dt == null) return;
+
+    _isSavingOrSaved = true;
+    _ttsFallbackTimer?.cancel();
+    _listenAfterTts = false;
+
+    final voice = ref.read(nativeVoiceChannelProvider);
+    try {
+      await voice.cancelListening();
+    } catch (_) {}
 
     var tzId = 'Africa/Cairo';
     try {
@@ -620,11 +616,21 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
     final reply = 'تم حفظ المنبه: "${alarm.title}" الساعة $timeStr';
 
     _resetDraft();
-    setState(() {
-      _phase = _VoicePhase.saved;
-      _statusMessage = reply;
-    });
-    await _speakAndMaybeListen(reply, listenAfter: false);
+
+    try {
+      await voice.speak(reply, language: _language);
+    } catch (_) {}
+
+    if (mounted) {
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      Navigator.of(context).pop(alarm);
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(reply),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   Future<void> _openInEditor() async {

@@ -86,6 +86,26 @@ class BlockedUsersTable extends Table {
   Set<Column> get primaryKey => {uid};
 }
 
+class BuddiesTable extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  TextColumn get phone => text().withDefault(const Constant(''))();
+  DateTimeColumn get createdAtUtc => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class GroupsTable extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  TextColumn get memberIdsJson => text().withDefault(const Constant('[]'))();
+  DateTimeColumn get createdAtUtc => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 @DriftDatabase(tables: [
   AlarmsTable,
   AlarmParticipantsTable,
@@ -93,6 +113,8 @@ class BlockedUsersTable extends Table {
   SyncQueueTable,
   NotificationsTable,
   BlockedUsersTable,
+  BuddiesTable,
+  GroupsTable,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
@@ -100,7 +122,18 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) async => m.createAll(),
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            await m.createTable(buddiesTable);
+            await m.createTable(groupsTable);
+          }
+        },
+      );
 
   Future<List<AlarmsTableData>> getActiveAlarms() =>
       (select(alarmsTable)..where((t) => t.isDeleted.equals(false))).get();
@@ -183,6 +216,32 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> unblockUser(String uid) =>
       (delete(blockedUsersTable)..where((t) => t.uid.equals(uid))).go();
+
+  // Buddies CRUD
+  Stream<List<BuddiesTableData>> watchBuddies() =>
+      (select(buddiesTable)..orderBy([(t) => OrderingTerm.asc(t.name)])).watch();
+
+  Future<List<BuddiesTableData>> getAllBuddies() =>
+      (select(buddiesTable)..orderBy([(t) => OrderingTerm.asc(t.name)])).get();
+
+  Future<void> upsertBuddy(BuddiesTableCompanion entry) =>
+      into(buddiesTable).insertOnConflictUpdate(entry);
+
+  Future<void> deleteBuddy(String id) =>
+      (delete(buddiesTable)..where((t) => t.id.equals(id))).go();
+
+  // Groups CRUD
+  Stream<List<GroupsTableData>> watchGroups() =>
+      (select(groupsTable)..orderBy([(t) => OrderingTerm.asc(t.name)])).watch();
+
+  Future<List<GroupsTableData>> getAllGroups() =>
+      (select(groupsTable)..orderBy([(t) => OrderingTerm.asc(t.name)])).get();
+
+  Future<void> upsertGroup(GroupsTableCompanion entry) =>
+      into(groupsTable).insertOnConflictUpdate(entry);
+
+  Future<void> deleteGroup(String id) =>
+      (delete(groupsTable)..where((t) => t.id.equals(id))).go();
 }
 
 LazyDatabase _openConnection() {

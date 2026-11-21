@@ -7,6 +7,7 @@ import '../../data/platform/native_voice_channel.dart';
 import '../../data/remote/firestore_service.dart';
 import '../../data/repositories/alarm_repository.dart';
 import '../../domain/entities/alarm.dart';
+import '../../domain/entities/buddy_group.dart';
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
   final db = AppDatabase();
@@ -37,6 +38,14 @@ final alarmRepositoryProvider = Provider<AlarmRepository>((ref) {
 
 final alarmsStreamProvider = StreamProvider<List<Alarm>>((ref) {
   return ref.watch(alarmRepositoryProvider).watchAlarms();
+});
+
+final buddiesStreamProvider = StreamProvider<List<SavedBuddy>>((ref) {
+  return ref.watch(alarmRepositoryProvider).watchBuddies();
+});
+
+final groupsStreamProvider = StreamProvider<List<SavedGroup>>((ref) {
+  return ref.watch(alarmRepositoryProvider).watchGroups();
 });
 
 final notificationsStreamProvider = StreamProvider((ref) {

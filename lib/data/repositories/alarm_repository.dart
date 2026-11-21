@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:drift/drift.dart';
 import '../../domain/entities/alarm.dart';
+import '../../domain/entities/buddy_group.dart';
 import '../../domain/services/recurrence_calculator.dart';
 import '../local/app_database.dart';
 import '../platform/native_alarm_channel.dart';
@@ -96,6 +97,83 @@ class AlarmRepository {
     }
   }
 
+  // --- Saved Buddies & Groups CRUD ---
+  Stream<List<SavedBuddy>> watchBuddies() {
+    return _db.watchBuddies().map(
+          (rows) => rows
+              .map(
+                (r) => SavedBuddy(
+                  id: r.id,
+                  name: r.name,
+                  phone: r.phone,
+                  createdAtUtc: r.createdAtUtc.toUtc(),
+                ),
+              )
+              .toList(),
+        );
+  }
+
+  Future<void> saveBuddy(SavedBuddy buddy) async {
+    await _db.upsertBuddy(
+      BuddiesTableCompanion(
+        id: Value(buddy.id),
+        name: Value(buddy.name),
+        phone: Value(buddy.phone),
+        createdAtUtc: Value(buddy.createdAtUtc.toUtc()),
+      ),
+    );
+  }
+
+  Future<void> deleteBuddy(String id) async {
+    await _db.deleteBuddy(id);
+    // Also remove this buddy from any saved groups
+    final groups = await _db.getAllGroups();
+    for (final g in groups) {
+      final members = SavedGroup.decodeMemberIds(g.memberIdsJson);
+      if (members.contains(id)) {
+        final updated = members.where((m) => m != id).toList();
+        await _db.upsertGroup(
+          GroupsTableCompanion(
+            id: Value(g.id),
+            name: Value(g.name),
+            memberIdsJson: Value(jsonEncode(updated)),
+            createdAtUtc: Value(g.createdAtUtc.toUtc()),
+          ),
+        );
+      }
+    }
+  }
+
+  Stream<List<SavedGroup>> watchGroups() {
+    return _db.watchGroups().map(
+          (rows) => rows
+              .map(
+                (r) => SavedGroup(
+                  id: r.id,
+                  name: r.name,
+                  memberIds: SavedGroup.decodeMemberIds(r.memberIdsJson),
+                  createdAtUtc: r.createdAtUtc.toUtc(),
+                ),
+              )
+              .toList(),
+        );
+  }
+
+  Future<void> saveGroup(SavedGroup group) async {
+    await _db.upsertGroup(
+      GroupsTableCompanion(
+        id: Value(group.id),
+        name: Value(group.name),
+        memberIdsJson: Value(group.memberIdsJson),
+        createdAtUtc: Value(group.createdAtUtc.toUtc()),
+      ),
+    );
+  }
+
+  Future<void> deleteGroup(String id) async {
+    await _db.deleteGroup(id);
+  }
+
   Future<String> exportAlarmsBackupJson({
     String defaultRingtoneUri = 'default',
     String defaultRingtoneName = '',
@@ -107,13 +185,38 @@ class AlarmRepository {
       final alarm = _mapRowToAlarm(r, participantsRows);
       alarms.add(alarm.toBackupMap());
     }
+    final buddyRows = await _db.getAllBuddies();
+    final buddies = buddyRows
+        .map(
+          (b) => SavedBuddy(
+            id: b.id,
+            name: b.name,
+            phone: b.phone,
+            createdAtUtc: b.createdAtUtc.toUtc(),
+          ).toJson(),
+        )
+        .toList();
+    final groupRows = await _db.getAllGroups();
+    final groups = groupRows
+        .map(
+          (g) => SavedGroup(
+            id: g.id,
+            name: g.name,
+            memberIds: SavedGroup.decodeMemberIds(g.memberIdsJson),
+            createdAtUtc: g.createdAtUtc.toUtc(),
+          ).toJson(),
+        )
+        .toList();
+
     final payload = <String, dynamic>{
       'app': 'U3m Alarm',
-      'version': 1,
+      'version': 2,
       'exportedAtUtc': DateTime.now().toUtc().toIso8601String(),
       'defaultRingtoneUri': defaultRingtoneUri,
       'defaultRingtoneName': defaultRingtoneName,
       'alarms': alarms,
+      'buddies': buddies,
+      'groups': groups,
     };
     return const JsonEncoder.withIndent('  ').convert(payload);
   }
@@ -121,12 +224,32 @@ class AlarmRepository {
   Future<int> importAlarmsBackupJson(String rawJson) async {
     final decoded = jsonDecode(rawJson);
     List<dynamic> alarmsList;
+    List<dynamic> buddiesList = const [];
+    List<dynamic> groupsList = const [];
+
     if (decoded is Map<String, dynamic> && decoded['alarms'] is List) {
       alarmsList = decoded['alarms'] as List<dynamic>;
+      if (decoded['buddies'] is List) {
+        buddiesList = decoded['buddies'] as List<dynamic>;
+      }
+      if (decoded['groups'] is List) {
+        groupsList = decoded['groups'] as List<dynamic>;
+      }
     } else if (decoded is List) {
       alarmsList = decoded;
     } else {
       throw const FormatException('Invalid backup file format');
+    }
+
+    for (final item in buddiesList) {
+      if (item is Map<String, dynamic>) {
+        await saveBuddy(SavedBuddy.fromJson(item));
+      }
+    }
+    for (final item in groupsList) {
+      if (item is Map<String, dynamic>) {
+        await saveGroup(SavedGroup.fromJson(item));
+      }
     }
 
     int count = 0;

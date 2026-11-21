@@ -10,8 +10,10 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../domain/entities/alarm.dart';
+import '../../domain/entities/buddy_group.dart';
 import '../providers/app_providers.dart';
 import '../theme/app_theme.dart';
+import 'contacts_groups_tab.dart';
 import 'custom_repeat_screen.dart';
 
 class AlarmEditorScreen extends ConsumerStatefulWidget {
@@ -51,6 +53,8 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
 
   late AlarmType _alarmType;
   late List<AlarmParticipant> _participants;
+  String? _selectedBuddyId;
+  String? _selectedGroupId;
 
   final AudioPlayer _previewPlayer = AudioPlayer();
   bool _isPreviewing = false;
@@ -91,6 +95,9 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
 
     _alarmType = e?.type ?? widget.initialType ?? AlarmType.personal;
     _participants = [...(e?.participants ?? const <AlarmParticipant>[])];
+    if (_alarmType == AlarmType.buddy && _participants.isNotEmpty) {
+      _selectedBuddyId = _participants.first.uid;
+    }
   }
 
   @override
@@ -366,6 +373,9 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
     final bottomInset = MediaQuery.of(context).viewPadding.bottom;
     final mainDefaultUri = ref.watch(defaultRingtoneUriProvider);
     final mainDefaultName = ref.watch(defaultRingtoneNameProvider);
+    final savedBuddies = ref.watch(buddiesStreamProvider).valueOrNull ?? const <SavedBuddy>[];
+    final savedGroups = ref.watch(groupsStreamProvider).valueOrNull ?? const <SavedGroup>[];
+    final buddyMap = {for (final b in savedBuddies) b.id: b};
 
     return Scaffold(
       appBar: AppBar(
@@ -415,7 +425,7 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                context.tr('Alarm Type', 'نوع المنبه'),
+                context.tr('Alarm For', 'المنبه لـ'),
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
@@ -424,30 +434,52 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
                   ButtonSegment(
                     value: AlarmType.personal,
                     icon: const Icon(Icons.person_outline, size: 18),
-                    label: Text(context.tr('Personal', 'شخصي')),
-                  ),
-                  ButtonSegment(
-                    value: AlarmType.group,
-                    icon: const Icon(Icons.groups_outlined, size: 18),
-                    label: Text(context.tr('Group', 'مجموعة')),
+                    label: Text(context.tr('Myself', 'لنفسي')),
                   ),
                   ButtonSegment(
                     value: AlarmType.buddy,
                     icon: const Icon(Icons.people_outline, size: 18),
                     label: Text(context.tr('Buddy', 'صديق')),
                   ),
+                  ButtonSegment(
+                    value: AlarmType.group,
+                    icon: const Icon(Icons.groups_outlined, size: 18),
+                    label: Text(context.tr('Group', 'مجموعة')),
+                  ),
                 ],
                 selected: {_alarmType},
                 onSelectionChanged: (sel) {
                   setState(() {
                     _alarmType = sel.first;
-                    if (_alarmType == AlarmType.buddy && _participants.length > 1) {
-                      _participants = [_participants.first];
+                    if (_alarmType == AlarmType.personal) {
+                      _participants = [];
+                      _selectedBuddyId = null;
+                      _selectedGroupId = null;
+                    } else if (_alarmType == AlarmType.buddy) {
+                      _selectedGroupId = null;
+                      if (_selectedBuddyId == null && savedBuddies.isNotEmpty) {
+                        _selectedBuddyId = savedBuddies.first.id;
+                        _participants = [savedBuddies.first.toAlarmParticipant()];
+                      } else if (_selectedBuddyId != null && buddyMap[_selectedBuddyId] != null) {
+                        _participants = [buddyMap[_selectedBuddyId]!.toAlarmParticipant()];
+                      } else {
+                        _participants = [];
+                      }
+                    } else if (_alarmType == AlarmType.group) {
+                      _selectedBuddyId = null;
+                      if (_selectedGroupId == null && savedGroups.isNotEmpty) {
+                        final g = savedGroups.first;
+                        _selectedGroupId = g.id;
+                        _participants = g.memberIds
+                            .map((id) => buddyMap[id]?.toAlarmParticipant())
+                            .whereType<AlarmParticipant>()
+                            .toList();
+                      }
                     }
                   });
                 },
               ),
-              if (_alarmType != AlarmType.personal) ...[
+              if (_alarmType == AlarmType.buddy) ...[
                 const SizedBox(height: 12),
                 Card(
                   margin: EdgeInsets.zero,
@@ -458,114 +490,151 @@ class _AlarmEditorScreenState extends ConsumerState<AlarmEditorScreen> {
                       children: [
                         Row(
                           children: [
-                            Icon(
-                              _alarmType == AlarmType.buddy
-                                  ? Icons.people_alt_rounded
-                                  : Icons.groups_rounded,
-                              color: _alarmType == AlarmType.buddy
-                                  ? AppTheme.buddyPurple
-                                  : AppTheme.groupTeal,
+                            const Icon(
+                              Icons.people_alt_rounded,
+                              color: AppTheme.buddyPurple,
                               size: 20,
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                _alarmType == AlarmType.buddy
-                                    ? context.tr(
-                                        'Buddy Accountability',
-                                        'متابعة الصديق (Buddy)',
-                                      )
-                                    : context.tr(
-                                        'Group Participants',
-                                        'أعضاء المجموعة (Groups)',
-                                      ),
+                                context.tr('Choose a Saved Buddy', 'اختر صديقاً من المحفوظين'),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 13.5,
                                 ),
                               ),
                             ),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const ContactsGroupsTab(),
+                                ),
+                              ),
+                              child: Text(context.tr('Manage', 'إدارة')),
+                            ),
                           ],
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _alarmType == AlarmType.buddy
-                              ? context.tr(
-                                  'Your buddy will be notified when you complete or miss this alarm.',
-                                  'سيتم إشعار صديقك عند إتمام أو فوات هذا المنبه.',
-                                )
-                              : context.tr(
-                                  'Share this alarm with your group and coordinate via chat.',
-                                  'شارك هذا المنبه مع مجموعتك وتواصلوا عبر المحادثة.',
-                                ),
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        const SizedBox(height: 6),
+                        if (savedBuddies.isEmpty)
+                          Text(
+                            context.tr(
+                              'No saved buddies yet. Tap "Manage" to add buddies first.',
+                              'لا يوجد أصدقاء محفوظون بعد. اضغط «إدارة» لإضافة أصدقاء أولاً.',
+                            ),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                          )
+                        else
+                          ...savedBuddies.map(
+                            (b) => RadioListTile<String>(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              value: b.id,
+                              groupValue: _selectedBuddyId,
+                              title: Text(
+                                b.name,
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              subtitle: b.phone.isNotEmpty ? Text(b.phone) : null,
+                              onChanged: (val) {
+                                if (val == null) return;
+                                setState(() {
+                                  _selectedBuddyId = val;
+                                  _participants = [b.toAlarmParticipant()];
+                                });
+                              },
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 10),
-                        if (_participants.isNotEmpty) ...[
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: _participants
-                                .map(
-                                  (member) => InputChip(
-                                    avatar: CircleAvatar(
-                                      backgroundColor:
-                                          _alarmType == AlarmType.buddy
-                                              ? AppTheme.buddyPurple
-                                              : AppTheme.groupTeal,
-                                      child: Text(
-                                        member.displayName.isNotEmpty
-                                            ? member.displayName[0].toUpperCase()
-                                            : '?',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                    label: Text(member.displayName),
-                                    onDeleted: () {
-                                      setState(() {
-                                        _participants.removeWhere(
-                                          (x) => x.uid == member.uid,
-                                        );
-                                      });
-                                    },
-                                  ),
-                                )
-                                .toList(),
-                          ),
-                          const SizedBox(height: 10),
-                        ],
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 6,
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              if (_alarmType == AlarmType.group) ...[
+                const SizedBox(height: 12),
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           children: [
-                            FilledButton.tonalIcon(
-                              onPressed: _pickParticipantFromContacts,
-                              icon: const Icon(Icons.contacts_outlined, size: 18),
-                              label: Text(
-                                context.tr(
-                                  'Pick from Contacts',
-                                  'اختيار من جهات الاتصال',
+                            const Icon(
+                              Icons.groups_rounded,
+                              color: AppTheme.groupTeal,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                context.tr('Choose a Saved Group', 'اختر مجموعة من المحفوظات'),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13.5,
                                 ),
                               ),
                             ),
-                            OutlinedButton.icon(
-                              onPressed: _addParticipantManually,
-                              icon: const Icon(Icons.person_add_outlined, size: 18),
-                              label: Text(
-                                _alarmType == AlarmType.buddy
-                                    ? context.tr('Add Buddy', 'إضافة صديق')
-                                    : context.tr('Add Member', 'إضافة عضو'),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const ContactsGroupsTab(),
+                                ),
                               ),
+                              child: Text(context.tr('Manage', 'إدارة')),
                             ),
                           ],
                         ),
+                        const SizedBox(height: 6),
+                        if (savedGroups.isEmpty)
+                          Text(
+                            context.tr(
+                              'No saved groups yet. Tap "Manage" to create a group first.',
+                              'لا توجد مجموعات محفوظة بعد. اضغط «إدارة» لإنشاء مجموعة أولاً.',
+                            ),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                          )
+                        else
+                          ...savedGroups.map((g) {
+                            final members = g.memberIds
+                                .map((id) => buddyMap[id]?.name)
+                                .whereType<String>()
+                                .toList();
+                            return RadioListTile<String>(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              value: g.id,
+                              groupValue: _selectedGroupId,
+                              title: Text(
+                                g.name,
+                                style: const TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                              subtitle: Text(
+                                members.isNotEmpty
+                                    ? '${members.length} • ${members.join('، ')}'
+                                    : context.tr('No members', 'لا يوجد أعضاء'),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onChanged: (val) {
+                                if (val == null) return;
+                                setState(() {
+                                  _selectedGroupId = val;
+                                  _participants = g.memberIds
+                                      .map((id) => buddyMap[id]?.toAlarmParticipant())
+                                      .whereType<AlarmParticipant>()
+                                      .toList();
+                                });
+                              },
+                            );
+                          }),
                       ],
                     ),
                   ),

@@ -99,7 +99,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
           NavigationDestination(
             icon: const Icon(Icons.groups_outlined),
             selectedIcon: const Icon(Icons.groups),
-            label: context.tr('Groups', 'المجموعات'),
+            label: context.tr('Buddies', 'الأصدقاء'),
           ),
           NavigationDestination(
             icon: const Icon(Icons.notifications_outlined),
