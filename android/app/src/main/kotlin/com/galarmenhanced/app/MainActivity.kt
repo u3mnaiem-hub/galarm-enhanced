@@ -22,7 +22,7 @@ import androidx.core.content.FileProvider
 import com.galarmenhanced.app.alarm.AlarmReceiver
 import com.galarmenhanced.app.alarm.AlarmRepeatHelper
 import com.galarmenhanced.app.alarm.AlarmRingingService
-import com.galarmenhanced.app.alarm.SharedAlarmSyncService
+import com.galarmenhanced.app.alarm.SharedAlarmSyncReceiver
 import com.galarmenhanced.app.voice.VoiceAssistantChannel
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -241,7 +241,7 @@ class MainActivity : FlutterActivity() {
                             .putString("sync_phone", phone)
                             .putString("sync_id_token", idToken)
                             .apply()
-                        SharedAlarmSyncService.startIfConfigured(this)
+                        SharedAlarmSyncReceiver.startPolling(this)
                         result.success(true)
                     }
                     else -> result.notImplemented()

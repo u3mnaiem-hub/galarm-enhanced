@@ -31,7 +31,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
                     // Skip malformed entry
                 }
             }
-            SharedAlarmSyncService.startIfConfigured(context)
+            SharedAlarmSyncReceiver.startPolling(context)
         }
     }
 }

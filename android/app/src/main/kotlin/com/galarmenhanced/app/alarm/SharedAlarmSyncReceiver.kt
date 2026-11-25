@@ -1,15 +1,11 @@
 package com.galarmenhanced.app.alarm
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
+import android.app.AlarmManager
 import android.app.PendingIntent
-import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.os.Build
-import android.os.IBinder
-import androidx.core.app.NotificationCompat
 import com.galarmenhanced.app.MainActivity
 import org.json.JSONArray
 import org.json.JSONObject
@@ -19,117 +15,55 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
-import java.util.concurrent.TimeUnit
 
 /**
- * Lightweight background foreground-service that polls Firestore's REST API every 15 seconds
- * for incoming buddy/group alarms and schedules them directly with Android AlarmManager.
- *
- * This guarantees shared alarms ring reliably on the recipient's phone even when the app is
- * closed, the screen is locked, and Firebase is on the free Spark plan (no Cloud Functions).
+ * Crash-free background receiver that periodically polls Firestore's REST API
+ * for incoming buddy/group alarms using AlarmManager (no long-running ForegroundService,
+ * so it never triggers Android 14/15 dataSync FGS crashes or timeouts).
  */
-class SharedAlarmSyncService : Service() {
-    private var executor: ScheduledExecutorService? = null
+class SharedAlarmSyncReceiver : BroadcastReceiver() {
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundSilent()
+    override fun onReceive(context: Context, intent: Intent?) {
+        val pendingResult = goAsync()
+        val appContext = context.applicationContext
+        executor.execute {
+            try {
+                pollSharedAlarmsSafe(appContext)
+            } catch (_: Throwable) {
+                // Never crash on network/parse issues
+            } finally {
+                try {
+                    scheduleNextPoll(appContext, POLL_INTERVAL_MS)
+                } catch (_: Throwable) {
+                }
+                try {
+                    pendingResult.finish()
+                } catch (_: Throwable) {
+                }
+            }
+        }
+    }
 
-        val prefs = getSharedPreferences("galarm_native_store", Context.MODE_PRIVATE)
+    private fun pollSharedAlarmsSafe(context: Context) {
+        val prefs = context.getSharedPreferences("galarm_native_store", Context.MODE_PRIVATE)
         val projectId = prefs.getString("sync_project_id", "") ?: ""
         val uid = prefs.getString("sync_uid", "") ?: ""
         val phone = prefs.getString("sync_phone", "") ?: ""
+        val idToken = prefs.getString("sync_id_token", "") ?: ""
 
-        if (projectId.isBlank() || (uid.isBlank() && phone.isBlank())) {
-            stopSelf()
-            return START_NOT_STICKY
+        if (projectId.isBlank() || (uid.isBlank() && phone.isBlank())) return
+
+        val docs = mutableListOf<JSONObject>()
+        if (phone.isNotBlank()) {
+            docs.addAll(runFirestoreArrayContainsQuery(projectId, idToken, "participantPhones", phone))
+        }
+        if (uid.isNotBlank() && uid != "local_user") {
+            docs.addAll(runFirestoreArrayContainsQuery(projectId, idToken, "participantUids", uid))
         }
 
-        if (executor == null || executor!!.isShutdown) {
-            executor = Executors.newSingleThreadScheduledExecutor()
-            executor?.scheduleWithFixedDelay(
-                { pollSharedAlarmsSafe() },
-                0L,
-                15L,
-                TimeUnit.SECONDS
-            )
-        } else {
-            executor?.execute { pollSharedAlarmsSafe() }
-        }
-
-        return START_STICKY
-    }
-
-    private fun startForegroundSilent() {
-        val channelId = "u3m_shared_alarm_sync_channel"
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId,
-                "Buddy & Group Alarm Sync",
-                NotificationManager.IMPORTANCE_MIN
-            ).apply {
-                description = "Keeps buddy and group alarms synced while the screen is locked"
-                setSound(null, null)
-                enableVibration(false)
-                setShowBadge(false)
-            }
-            nm.createNotificationChannel(channel)
-        }
-
-        val openIntent = Intent(this, MainActivity::class.java)
-        val openPi = PendingIntent.getActivity(
-            this,
-            2002,
-            openIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("U3m Alarm")
-            .setContentText("Ready to receive buddy & group alarms")
-            .setPriority(NotificationCompat.PRIORITY_MIN)
-            .setOngoing(true)
-            .setSilent(true)
-            .setContentIntent(openPi)
-            .build()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                2002,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            startForeground(2002, notification)
-        }
-    }
-
-    private fun pollSharedAlarmsSafe() {
-        try {
-            val prefs = getSharedPreferences("galarm_native_store", Context.MODE_PRIVATE)
-            val projectId = prefs.getString("sync_project_id", "") ?: ""
-            val uid = prefs.getString("sync_uid", "") ?: ""
-            val phone = prefs.getString("sync_phone", "") ?: ""
-            val idToken = prefs.getString("sync_id_token", "") ?: ""
-
-            if (projectId.isBlank()) return
-
-            val docs = mutableListOf<JSONObject>()
-            if (phone.isNotBlank()) {
-                docs.addAll(runFirestoreArrayContainsQuery(projectId, idToken, "participantPhones", phone))
-            }
-            if (uid.isNotBlank() && uid != "local_user") {
-                docs.addAll(runFirestoreArrayContainsQuery(projectId, idToken, "participantUids", uid))
-            }
-
-            val now = System.currentTimeMillis()
-            for (doc in docs) {
-                processFirestoreAlarmDoc(doc, uid, now, prefs)
-            }
-        } catch (_: Exception) {
-            // Network offline or transient error — will retry in 15 seconds
+        val now = System.currentTimeMillis()
+        for (doc in docs) {
+            processFirestoreAlarmDoc(context, doc, uid, now, prefs)
         }
     }
 
@@ -177,8 +111,8 @@ class SharedAlarmSyncService : Service() {
         return try {
             conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
-                connectTimeout = 8_000
-                readTimeout = 8_000
+                connectTimeout = 6_000
+                readTimeout = 6_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json; charset=UTF-8")
                 if (bearerToken.isNotBlank()) {
@@ -200,6 +134,7 @@ class SharedAlarmSyncService : Service() {
     }
 
     private fun processFirestoreAlarmDoc(
+        context: Context,
         doc: JSONObject,
         myUid: String,
         now: Long,
@@ -278,19 +213,7 @@ class SharedAlarmSyncService : Service() {
             .putLong("synced_shared_$alarmId", startAtMillis)
             .apply()
 
-        if (triggerAtMillis <= System.currentTimeMillis() + 2_500L) {
-            // Due right now (or within 2.5s) — ring immediately!
-            val ringIntent = Intent(this, AlarmRingingService::class.java).apply {
-                putExtra("payload", payload.toString())
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(ringIntent)
-            } else {
-                startService(ringIntent)
-            }
-        } else {
-            MainActivity.scheduleWithAlarmManager(this, payload)
-        }
+        MainActivity.scheduleWithAlarmManager(context, payload)
     }
 
     private fun getStringField(fields: JSONObject, key: String): String {
@@ -322,30 +245,45 @@ class SharedAlarmSyncService : Service() {
         return defaultValue
     }
 
-    override fun onDestroy() {
-        executor?.shutdownNow()
-        executor = null
-        super.onDestroy()
-    }
-
-    override fun onBind(intent: Intent?): IBinder? = null
-
     companion object {
-        fun startIfConfigured(context: Context) {
+        private const val POLL_REQUEST_CODE = 42099
+        private const val POLL_INTERVAL_MS = 30_000L
+        private val executor = Executors.newSingleThreadExecutor()
+
+        fun startPolling(context: Context) {
             val prefs = context.getSharedPreferences("galarm_native_store", Context.MODE_PRIVATE)
             val projectId = prefs.getString("sync_project_id", "") ?: ""
             val uid = prefs.getString("sync_uid", "") ?: ""
             val phone = prefs.getString("sync_phone", "") ?: ""
             if (projectId.isBlank() || (uid.isBlank() && phone.isBlank())) return
 
-            val intent = Intent(context, SharedAlarmSyncService::class.java)
+            // Schedule first poll shortly, then repeat every 30s via AlarmManager
+            scheduleNextPoll(context.applicationContext, 3_000L)
+        }
+
+        private fun scheduleNextPoll(context: Context, delayMs: Long) {
+            val prefs = context.getSharedPreferences("galarm_native_store", Context.MODE_PRIVATE)
+            val projectId = prefs.getString("sync_project_id", "") ?: ""
+            val uid = prefs.getString("sync_uid", "") ?: ""
+            val phone = prefs.getString("sync_phone", "") ?: ""
+            if (projectId.isBlank() || (uid.isBlank() && phone.isBlank())) return
+
+            val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val intent = Intent(context, SharedAlarmSyncReceiver::class.java)
+            val pi = PendingIntent.getBroadcast(
+                context,
+                POLL_REQUEST_CODE,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val triggerAt = System.currentTimeMillis() + delayMs
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
                 } else {
-                    context.startService(intent)
+                    am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi)
                 }
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
             }
         }
     }
