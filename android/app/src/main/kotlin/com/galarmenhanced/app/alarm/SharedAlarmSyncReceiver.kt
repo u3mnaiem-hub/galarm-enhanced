@@ -156,8 +156,8 @@ class SharedAlarmSyncReceiver : BroadcastReceiver() {
         val startAtMillis = getLongField(fields, "startAtMillis", 0L)
         if (startAtMillis <= 0L) return
 
-        // Skip old past alarms (> 2 minutes in the past)
-        if (startAtMillis < now - 120_000L) return
+        // Skip old past alarms (> 5 minutes in the past)
+        if (startAtMillis < now - 300_000L) return
 
         // Avoid re-scheduling the exact same alarm occurrence repeatedly
         val lastScheduledStart = prefs.getLong("synced_shared_$alarmId", -1L)
@@ -213,7 +213,23 @@ class SharedAlarmSyncReceiver : BroadcastReceiver() {
             .putLong("synced_shared_$alarmId", startAtMillis)
             .apply()
 
-        MainActivity.scheduleWithAlarmManager(context, payload)
+        if (triggerAtMillis <= System.currentTimeMillis() + 3_000L) {
+            // Due right now (or just passed due to minor delay) — ring immediately!
+            try {
+                val ringIntent = Intent(context, AlarmRingingService::class.java).apply {
+                    putExtra("payload", payload.toString())
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(ringIntent)
+                } else {
+                    context.startService(ringIntent)
+                }
+            } catch (_: Throwable) {
+                MainActivity.scheduleWithAlarmManager(context, payload)
+            }
+        } else {
+            MainActivity.scheduleWithAlarmManager(context, payload)
+        }
     }
 
     private fun getStringField(fields: JSONObject, key: String): String {
@@ -247,7 +263,7 @@ class SharedAlarmSyncReceiver : BroadcastReceiver() {
 
     companion object {
         private const val POLL_REQUEST_CODE = 42099
-        private const val POLL_INTERVAL_MS = 30_000L
+        private const val POLL_INTERVAL_MS = 15_000L
         private val executor = Executors.newSingleThreadExecutor()
 
         fun startPolling(context: Context) {
@@ -257,8 +273,8 @@ class SharedAlarmSyncReceiver : BroadcastReceiver() {
             val phone = prefs.getString("sync_phone", "") ?: ""
             if (projectId.isBlank() || (uid.isBlank() && phone.isBlank())) return
 
-            // Schedule first poll shortly, then repeat every 30s via AlarmManager
-            scheduleNextPoll(context.applicationContext, 3_000L)
+            // Schedule first poll immediately (2s), then repeat every 15s using exact allow-while-idle
+            scheduleNextPoll(context.applicationContext, 2_000L)
         }
 
         private fun scheduleNextPoll(context: Context, delayMs: Long) {
@@ -279,9 +295,18 @@ class SharedAlarmSyncReceiver : BroadcastReceiver() {
             val triggerAt = System.currentTimeMillis() + delayMs
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+                    am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
                 } else {
-                    am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+                    am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+                }
+            } catch (_: SecurityException) {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+                    } else {
+                        am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+                    }
+                } catch (_: Throwable) {
                 }
             } catch (_: Throwable) {
             }

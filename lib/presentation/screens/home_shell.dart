@@ -104,7 +104,29 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _syncAlarmsWithNative();
+      _refreshNativeSharedSync();
     }
+  }
+
+  Future<void> _refreshNativeSharedSync() async {
+    final uid = ref.read(currentUserIdProvider);
+    final phone = ref.read(currentUserPhoneProvider);
+    if (uid == 'local_user' || Firebase.apps.isEmpty) return;
+    try {
+      final projectId = Firebase.app().options.projectId;
+      final normalizedPhone =
+          phone.isNotEmpty ? FirestoreService.normalizePhoneNumber(phone) : '';
+      String idToken = '';
+      try {
+        idToken = await FirebaseAuth.instance.currentUser?.getIdToken() ?? '';
+      } catch (_) {}
+      await ref.read(nativeAlarmChannelProvider).startSharedAlarmSync(
+            projectId: projectId,
+            uid: uid,
+            phone: normalizedPhone,
+            idToken: idToken,
+          );
+    } catch (_) {}
   }
 
   Future<void> _syncAlarmsWithNative() async {
