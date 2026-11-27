@@ -13,6 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/platform/native_voice_channel.dart';
 import '../../l10n/tr.dart';
 import '../providers/app_providers.dart';
+import '../theme/app_theme.dart';
+import 'help_screen.dart';
 import 'phone_auth_screen.dart';
 
 class SettingsTab extends ConsumerStatefulWidget {
@@ -303,6 +305,7 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
   @override
   Widget build(BuildContext context) {
     final themeMode = ref.watch(themeModeProvider);
+    final colorTheme = ref.watch(colorThemeProvider);
     final use24h = ref.watch(use24HourFormatProvider);
     final locale = ref.watch(localeProvider);
     final defaultRingtoneUri = ref.watch(defaultRingtoneUriProvider);
@@ -343,7 +346,20 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
         : context.tr('System Default Ringtone', 'نغمة النظام الافتراضية');
 
     return Scaffold(
-      appBar: AppBar(title: Text(context.tr('Settings', 'الإعدادات'))),
+      appBar: AppBar(
+        title: Text(context.tr('Settings', 'الإعدادات')),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline_rounded),
+            tooltip: context.tr('Help & Features Guide', 'المساعدة ودليل المميزات'),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const HelpScreen()),
+              );
+            },
+          ),
+        ],
+      ),
       body: ListView(
         children: [
           // Phone Account (Firebase Auth)
@@ -432,6 +448,100 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                   await prefs.setString('theme_mode', v.name);
                 }
               },
+            ),
+          ),
+          // Color Theme Picker
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+            child: Row(
+              children: [
+                const Icon(Icons.palette_outlined, size: 20),
+                const SizedBox(width: 12),
+                Text(
+                  context.tr('App Color Theme', 'ثيم ألوان التطبيق'),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: AppColorTheme.values.map((t) {
+                final palette = AppTheme.paletteOf(t);
+                final isSelected = colorTheme == t;
+                return InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: () async {
+                    ref.read(colorThemeProvider.notifier).state = t;
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setString('color_theme', t.name);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? palette.primaryLight.withOpacity(0.16)
+                          : Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: isSelected
+                            ? palette.primaryLight
+                            : Theme.of(context)
+                                .colorScheme
+                                .outlineVariant
+                                .withOpacity(0.7),
+                        width: isSelected ? 2 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 20,
+                          height: 20,
+                          decoration: BoxDecoration(
+                            color: palette.primaryLight,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: palette.primaryLight.withOpacity(0.4),
+                                blurRadius: 4,
+                              ),
+                            ],
+                          ),
+                          child: isSelected
+                              ? const Icon(
+                                  Icons.check,
+                                  size: 13,
+                                  color: Colors.white,
+                                )
+                              : null,
+                        ),
+                        const SizedBox(width: 7),
+                        Text(
+                          context.tr(palette.nameEn, palette.nameAr),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: isSelected
+                                ? FontWeight.w800
+                                : FontWeight.w500,
+                            color: isSelected ? palette.primaryLight : null,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
           ),
           ListTile(
@@ -1005,6 +1115,36 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
             ),
           ),
           const Divider(),
+
+          // Help & Features Guide
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: ListTile(
+              leading: Icon(
+                Icons.help_center_rounded,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              title: Text(
+                context.tr(
+                  'Help & Features Guide',
+                  'المساعدة ودليل مميزات البرنامج',
+                ),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text(
+                context.tr(
+                  'Full explanation of all U3m Alarm features and tips',
+                  'شرح كامل لجميع مميزات التطبيق وكيفية استخدامها',
+                ),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const HelpScreen()),
+                );
+              },
+            ),
+          ),
 
           ListTile(
             leading: const Icon(Icons.battery_saver),

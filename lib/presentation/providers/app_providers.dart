@@ -8,6 +8,7 @@ import '../../data/remote/firestore_service.dart';
 import '../../data/repositories/alarm_repository.dart';
 import '../../domain/entities/alarm.dart';
 import '../../domain/entities/buddy_group.dart';
+import '../theme/app_theme.dart';
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
   final db = AppDatabase();
@@ -58,6 +59,8 @@ final blockedUsersStreamProvider = StreamProvider((ref) {
 });
 
 final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.system);
+final colorThemeProvider =
+    StateProvider<AppColorTheme>((ref) => AppColorTheme.royalBlue);
 final localeProvider = StateProvider<Locale?>((ref) => null);
 final use24HourFormatProvider = StateProvider<bool>((ref) => false);
 final defaultRingtoneUriProvider = StateProvider<String>((ref) => 'default');

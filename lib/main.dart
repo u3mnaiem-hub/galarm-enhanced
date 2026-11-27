@@ -38,6 +38,7 @@ Future<void> main() async {
   final savedOfflineVoiceMode = prefs.getBool('offline_voice_mode') ?? false;
   final savedLocaleCode = prefs.getString('locale_code');
   final savedThemeStr = prefs.getString('theme_mode');
+  final savedColorTheme = AppTheme.parseTheme(prefs.getString('color_theme'));
 
   String initialUid = prefs.getString('user_uid') ?? 'local_user';
   String initialName = prefs.getString('user_name') ?? 'Me';
@@ -80,6 +81,7 @@ Future<void> main() async {
               : null,
         ),
         themeModeProvider.overrideWith((ref) => initialThemeMode),
+        colorThemeProvider.overrideWith((ref) => savedColorTheme),
       ],
       child: GAlarmEnhancedApp(
         initialSeenOnboarding: seenOnboarding,
@@ -109,6 +111,7 @@ class _GAlarmEnhancedAppState extends ConsumerState<GAlarmEnhancedApp> {
   @override
   Widget build(BuildContext context) {
     final themeMode = ref.watch(themeModeProvider);
+    final colorTheme = ref.watch(colorThemeProvider);
     final locale = ref.watch(localeProvider);
 
     final Widget home;
@@ -133,8 +136,8 @@ class _GAlarmEnhancedAppState extends ConsumerState<GAlarmEnhancedApp> {
     return MaterialApp(
       title: 'U3m Alarm',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
+      theme: AppTheme.light(colorTheme),
+      darkTheme: AppTheme.dark(colorTheme),
       themeMode: themeMode,
       locale: locale,
       supportedLocales: const [Locale('en'), Locale('ar')],
