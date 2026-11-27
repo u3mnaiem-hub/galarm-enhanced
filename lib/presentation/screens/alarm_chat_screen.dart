@@ -16,6 +16,8 @@ class AlarmChatScreen extends ConsumerStatefulWidget {
 class _AlarmChatScreenState extends ConsumerState<AlarmChatScreen> {
   final _msgCtrl = TextEditingController();
 
+  bool _sending = false;
+
   @override
   void dispose() {
     _msgCtrl.dispose();
@@ -24,24 +26,58 @@ class _AlarmChatScreenState extends ConsumerState<AlarmChatScreen> {
 
   Future<void> _send() async {
     final text = _msgCtrl.text.trim();
-    if (text.isEmpty) return;
-    _msgCtrl.clear();
+    if (text.isEmpty || _sending) return;
     final fs = ref.read(firestoreServiceProvider);
-    if (fs == null) return;
+    if (fs == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.tr(
+                'Firebase is not connected.',
+                'فايربيز غير متصل حالياً.',
+              ),
+            ),
+          ),
+        );
+      }
+      return;
+    }
 
-    final uid = ref.read(currentUserIdProvider);
-    final name = ref.read(currentUserNameProvider);
-    await fs.sendChatMessage(
-      ChatMessage(
-        id: const Uuid().v4(),
-        alarmId: widget.alarm.id,
-        senderId: uid,
-        senderName: name,
-        text: text,
-        sentAtUtc: DateTime.now().toUtc(),
-        readBy: [uid],
-      ),
-    );
+    setState(() => _sending = true);
+    _msgCtrl.clear();
+
+    try {
+      final uid = ref.read(currentUserIdProvider);
+      final name = ref.read(currentUserNameProvider);
+      await fs.sendChatMessage(
+        ChatMessage(
+          id: const Uuid().v4(),
+          alarmId: widget.alarm.id,
+          senderId: uid,
+          senderName: name,
+          text: text,
+          sentAtUtc: DateTime.now().toUtc(),
+          readBy: [uid],
+        ),
+      );
+    } catch (e) {
+      _msgCtrl.text = text;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.tr(
+                'Failed to send message: $e',
+                'فشل إرسال الرسالة: $e',
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
 
   @override
@@ -82,6 +118,20 @@ class _AlarmChatScreenState extends ConsumerState<AlarmChatScreen> {
                 : StreamBuilder<List<ChatMessage>>(
                     stream: fs.watchChatMessages(widget.alarm.id),
                     builder: (context, snap) {
+                      if (snap.hasError) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Text(
+                              context.tr(
+                                'Chat error: ${snap.error}',
+                                'خطأ في المحادثة: ${snap.error}',
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        );
+                      }
                       final msgs = snap.data ?? const [];
                       if (msgs.isEmpty) {
                         return Center(child: Text(context.tr('No messages yet.', 'لا توجد رسائل بعد.')));
@@ -134,6 +184,8 @@ class _AlarmChatScreenState extends ConsumerState<AlarmChatScreen> {
                   Expanded(
                     child: TextField(
                       controller: _msgCtrl,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _send(),
                       decoration: InputDecoration(
                         hintText: context.tr('Message participants...', 'اكتب رسالة للمشاركين...'),
                         border: const OutlineInputBorder(),
@@ -142,8 +194,14 @@ class _AlarmChatScreenState extends ConsumerState<AlarmChatScreen> {
                   ),
                   const SizedBox(width: 8),
                   IconButton.filled(
-                    onPressed: _send,
-                    icon: const Icon(Icons.send),
+                    onPressed: _sending ? null : _send,
+                    icon: _sending
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send),
                   ),
                 ],
               ),

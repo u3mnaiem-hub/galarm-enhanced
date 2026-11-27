@@ -51,53 +51,48 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
     final phone = ref.read(currentUserPhoneProvider);
     if (fs == null || uid == 'local_user') return;
 
-    await FcmAlarmService.initializeAndRegisterToken(
-      uid: uid,
-      phoneNumber: phone,
-      firestore: fs,
-      repo: repo,
-    );
-
-    // Start the native Android background sync service so buddy & group alarms
-    // are received and scheduled even while the phone is locked or app is closed.
-    try {
-      if (Firebase.apps.isNotEmpty) {
-        final projectId = Firebase.app().options.projectId;
-        final normalizedPhone =
-            phone.isNotEmpty ? FirestoreService.normalizePhoneNumber(phone) : '';
-        String idToken = '';
-        try {
-          idToken = await FirebaseAuth.instance.currentUser?.getIdToken() ?? '';
-        } catch (_) {}
-        await ref.read(nativeAlarmChannelProvider).startSharedAlarmSync(
-              projectId: projectId,
-              uid: uid,
-              phone: normalizedPhone,
-              idToken: idToken,
-            );
-      }
-    } catch (_) {}
-
+    // 1) Attach real-time Firestore listeners IMMEDIATELY (never block on FCM token)
     _sharedByUidSub?.cancel();
-    _sharedByUidSub = fs.watchSharedAlarmsForUser(uid).listen((alarms) async {
-      for (final a in alarms) {
-        if (a.ownerId != uid) {
-          await repo.saveIncomingSharedAlarm(a);
-        }
-      }
-    });
-
-    if (phone.isNotEmpty) {
-      _sharedByPhoneSub?.cancel();
-      _sharedByPhoneSub =
-          fs.watchSharedAlarmsForPhone(phone).listen((alarms) async {
+    _sharedByUidSub = fs.watchSharedAlarmsForUser(uid).listen(
+      (alarms) async {
         for (final a in alarms) {
           if (a.ownerId != uid) {
             await repo.saveIncomingSharedAlarm(a);
           }
         }
-      });
+      },
+      onError: (_) {},
+    );
+
+    if (phone.isNotEmpty) {
+      _sharedByPhoneSub?.cancel();
+      _sharedByPhoneSub = fs.watchSharedAlarmsForPhone(phone).listen(
+        (alarms) async {
+          for (final a in alarms) {
+            if (a.ownerId != uid) {
+              await repo.saveIncomingSharedAlarm(a);
+            }
+          }
+        },
+        onError: (_) {},
+      );
     }
+
+    // 2) Flush any queued shared alarms that failed while offline
+    unawaited(repo.flushSyncQueue());
+
+    // 3) Start the native Android background sync poller immediately
+    unawaited(_refreshNativeSharedSync());
+
+    // 4) Register FCM token in the background (non-blocking)
+    unawaited(
+      FcmAlarmService.initializeAndRegisterToken(
+        uid: uid,
+        phoneNumber: phone,
+        firestore: fs,
+        repo: repo,
+      ),
+    );
   }
 
   @override
@@ -133,6 +128,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
     final repo = ref.read(alarmRepositoryProvider);
     await repo.syncNativeEvents();
     await repo.rescheduleAllAlarms();
+    unawaited(repo.flushSyncQueue());
   }
 
   static const _pages = [

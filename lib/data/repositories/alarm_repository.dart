@@ -538,7 +538,14 @@ class AlarmRepository {
           final row = alarmMap[item.entityId];
           if (row != null) {
             final participantsRows = await _db.getParticipantsForAlarm(row.id);
-            await _remote!.syncAlarm(_mapRowToAlarm(row, participantsRows));
+            final alarm = _mapRowToAlarm(row, participantsRows);
+            final allBuddies = await _db.getAllBuddies();
+            final buddyPhoneById = {for (final b in allBuddies) b.id: b.phone};
+            final recipientPhones = alarm.participants
+                .map((p) => buddyPhoneById[p.uid] ?? '')
+                .where((ph) => ph.isNotEmpty)
+                .toList();
+            await _remote!.syncAlarm(alarm, recipientPhones: recipientPhones);
           }
         }
         await _db.removeSyncItem(item.id);
