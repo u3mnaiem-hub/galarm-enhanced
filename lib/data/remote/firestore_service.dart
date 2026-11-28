@@ -349,6 +349,53 @@ class FirestoreService {
     }, SetOptions(merge: true));
   }
 
+  /// Publishes a lightweight status update on the shared alarm document so the creator
+  /// and other group members see Done/Missed/Snoozed updates in their Notifications tab.
+  Future<void> publishAlarmStatusEvent({
+    required String alarmId,
+    required String alarmTitle,
+    required String alarmType,
+    required String actorUid,
+    required String actorName,
+    required String status,
+  }) async {
+    final nowMillis = DateTime.now().toUtc().millisecondsSinceEpoch;
+    final eventId = 'status_${alarmId}_${actorUid}_${status}_$nowMillis';
+    await _db.collection('alarms').doc(alarmId).set({
+      'lastStatusEvent': {
+        'id': eventId,
+        'alarmId': alarmId,
+        'alarmTitle': alarmTitle,
+        'alarmType': alarmType,
+        'actorUid': actorUid,
+        'actorName': actorName,
+        'status': status,
+        'atMillis': nowMillis,
+      },
+    }, SetOptions(merge: true));
+  }
+
+  /// Streams status events from shared alarms where [myUid] is a participant or owner.
+  Stream<List<Map<String, dynamic>>> watchSharedAlarmStatusEvents(String myUid) {
+    if (myUid.isEmpty || myUid == 'local_user') {
+      return const Stream.empty();
+    }
+    return _db
+        .collection('alarms')
+        .where('participantUids', arrayContains: myUid)
+        .snapshots()
+        .map((snap) {
+      final events = <Map<String, dynamic>>[];
+      for (final doc in snap.docs) {
+        final ev = doc.data()['lastStatusEvent'];
+        if (ev is Map<String, dynamic>) {
+          events.add(ev);
+        }
+      }
+      return events;
+    });
+  }
+
   Future<void> recordOccurrence({
     required String alarmId,
     required AlarmOccurrence occurrence,

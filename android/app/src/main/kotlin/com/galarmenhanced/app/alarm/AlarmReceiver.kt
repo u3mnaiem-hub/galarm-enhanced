@@ -11,11 +11,21 @@ class AlarmReceiver : BroadcastReceiver() {
         val payload = intent.getStringExtra("payload") ?: return
 
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        val wakeLock = pm.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "galarmenhanced:alarm_wake"
-        )
-        wakeLock.acquire(10_000L)
+        val wakeLock = try {
+            @Suppress("DEPRECATION")
+            pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                    PowerManager.ON_AFTER_RELEASE,
+                "galarmenhanced:alarm_screen_wake"
+            )
+        } catch (_: Throwable) {
+            pm.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "galarmenhanced:alarm_wake"
+            )
+        }
+        wakeLock.acquire(15_000L)
 
         val serviceIntent = Intent(context, AlarmRingingService::class.java).apply {
             putExtra("payload", payload)

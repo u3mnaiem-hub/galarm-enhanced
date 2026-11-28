@@ -1,5 +1,6 @@
 package com.galarmenhanced.app.alarm
 
+import android.app.ActivityOptions
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -111,9 +112,33 @@ class AlarmRingingService : Service() {
                 )
                 putExtra("payload", payloadRaw)
             }
-            startActivity(fullScreenIntent)
-        } catch (_: Exception) {
-            // System will display the high-priority heads-up / fullScreenIntent notification
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val opts = ActivityOptions.makeBasic()
+                    .setPendingIntentBackgroundActivityStartMode(
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                    )
+                    .toBundle()
+                val reqCode = payload.optString("alarmId", "alarm").hashCode()
+                val pi = PendingIntent.getActivity(
+                    this,
+                    reqCode,
+                    fullScreenIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                pi.send(this, 0, null, null, null, null, opts)
+            } else {
+                startActivity(fullScreenIntent)
+            }
+        } catch (_: Throwable) {
+            try {
+                val fallbackIntent = Intent(this, AlarmActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    putExtra("payload", payloadRaw)
+                }
+                startActivity(fallbackIntent)
+            } catch (_: Throwable) {
+                // System will display the high-priority heads-up / fullScreenIntent notification
+            }
         }
 
         // Optional ring duration auto-snooze

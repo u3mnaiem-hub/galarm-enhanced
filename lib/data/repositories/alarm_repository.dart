@@ -12,12 +12,14 @@ class AlarmRepository {
   final NativeAlarmChannel _native;
   final FirestoreService? _remote;
   final String Function()? _getCurrentUid;
+  final String Function()? _getCurrentName;
 
   AlarmRepository(
     this._db,
     this._native, [
     this._remote,
     this._getCurrentUid,
+    this._getCurrentName,
   ]);
 
   Stream<List<Alarm>> watchAlarms() {
@@ -82,18 +84,55 @@ class AlarmRepository {
       );
     }
 
-    if (syncToRemote && _remote != null && updated.type != AlarmType.personal) {
-      try {
-        final allBuddies = await _db.getAllBuddies();
-        final buddyPhoneById = {for (final b in allBuddies) b.id: b.phone};
-        final recipientPhones = updated.participants
-            .map((p) => buddyPhoneById[p.uid] ?? '')
-            .where((ph) => ph.isNotEmpty)
-            .toList();
-        await _remote!.syncAlarm(updated, recipientPhones: recipientPhones);
-      } catch (_) {
-        await _db.enqueueSync('alarm', updated.id, '{}');
+    if (syncToRemote && updated.type != AlarmType.personal) {
+      bool syncedOk = false;
+      if (_remote != null) {
+        try {
+          final allBuddies = await _db.getAllBuddies();
+          final buddyPhoneById = {for (final b in allBuddies) b.id: b.phone};
+          final recipientPhones = updated.participants
+              .map((p) => buddyPhoneById[p.uid] ?? '')
+              .where((ph) => ph.isNotEmpty)
+              .toList();
+          await _remote!.syncAlarm(updated, recipientPhones: recipientPhones);
+          syncedOk = true;
+        } catch (_) {
+          await _db.enqueueSync('alarm', updated.id, '{}');
+        }
       }
+
+      // Record status notification for the creator in the Notifications tab
+      final names = updated.participants.map((p) => p.displayName).join(', ');
+      final isBuddy = updated.type == AlarmType.buddy;
+      final localDt = updated.startAtUtc.toLocal();
+      final hh = localDt.hour % 12 == 0 ? 12 : localDt.hour % 12;
+      final mm = localDt.minute.toString().padLeft(2, '0');
+      final ampm = localDt.hour >= 12 ? 'م' : 'ص';
+      final timeLabel = '$hh:$mm $ampm';
+
+      await _db.upsertNotification(
+        NotificationsTableCompanion(
+          id: Value('sent_${updated.id}_${nowUtc.millisecondsSinceEpoch}'),
+          title: Value(
+            isBuddy
+                ? (syncedOk
+                    ? 'تم إرسال منبّه صديق ✓ • ${updated.title}'
+                    : 'منبّه صديق (بانتظار الإنترنت) • ${updated.title}')
+                : (syncedOk
+                    ? 'تم إرسال منبّه مجموعة ✓ • ${updated.title}'
+                    : 'منبّه مجموعة (بانتظار الإنترنت) • ${updated.title}'),
+          ),
+          body: Value(
+            names.isNotEmpty
+                ? 'إلى: $names • الموعد: $timeLabel'
+                : 'الموعد: $timeLabel',
+          ),
+          kind: Value(isBuddy ? 'buddy_sent' : 'group_sent'),
+          alarmId: Value(updated.id),
+          createdAtUtc: Value(nowUtc),
+          isRead: const Value(false),
+        ),
+      );
     }
 
     await _scheduleOrCancelNative(updated);
@@ -127,6 +166,7 @@ class AlarmRepository {
       state: incoming.isEnabled ? AlarmState.upcoming : incoming.state,
     );
 
+    final isNewIncoming = existing == null || existing.isDeleted;
     await _db.upsertAlarm(
       AlarmsTableCompanion(
         id: Value(effectiveAlarm.id),
@@ -152,6 +192,28 @@ class AlarmRepository {
         isDeleted: const Value(false),
       ),
     );
+    if (isNewIncoming && effectiveAlarm.isEnabled) {
+      final localDt = effectiveAlarm.startAtUtc.toLocal();
+      final hh = localDt.hour % 12 == 0 ? 12 : localDt.hour % 12;
+      final mm = localDt.minute.toString().padLeft(2, '0');
+      final ampm = localDt.hour >= 12 ? 'م' : 'ص';
+      final isBuddy = effectiveAlarm.type == AlarmType.buddy;
+      await _db.upsertNotification(
+        NotificationsTableCompanion(
+          id: Value('recv_${effectiveAlarm.id}'),
+          title: Value(
+            isBuddy
+                ? 'وصل منبّه صديق جديد • ${effectiveAlarm.title}'
+                : 'وصل منبّه مجموعة جديد • ${effectiveAlarm.title}',
+          ),
+          body: Value('الموعد: $hh:$mm $ampm • تم الجدولة تلقائياً على هاتفك'),
+          kind: Value(isBuddy ? 'buddy_received' : 'group_received'),
+          alarmId: Value(effectiveAlarm.id),
+          createdAtUtc: Value(nowUtc),
+          isRead: const Value(false),
+        ),
+      );
+    }
     await _scheduleOrCancelNative(effectiveAlarm);
   }
 
@@ -356,13 +418,13 @@ class AlarmRepository {
           id: Value('done_${alarm.id}_${nowUtc.millisecondsSinceEpoch}'),
           title: Value(
             alarm.type == AlarmType.buddy
-                ? 'Buddy Alarm Done • ${alarm.title}'
-                : 'Group Alarm Done • ${alarm.title}',
+                ? 'تم إنهاء منبّه صديق ✓ • ${alarm.title}'
+                : 'تم إنهاء منبّه مجموعة ✓ • ${alarm.title}',
           ),
           body: Value(
             alarm.participants.isNotEmpty
-                ? 'Updated for: ${alarm.participants.map((p) => p.displayName).join(", ")}'
-                : 'Marked as completed.',
+                ? 'المشاركون: ${alarm.participants.map((p) => p.displayName).join(", ")}'
+                : 'تم التأكيد كمكتمل.',
           ),
           kind: Value(
             alarm.type == AlarmType.buddy ? 'buddy_done' : 'group_change',
@@ -372,6 +434,7 @@ class AlarmRepository {
           isRead: const Value(false),
         ),
       );
+      await _publishStatusSafe(alarm, 'done');
     }
     await _native.stopRinging();
   }
@@ -431,13 +494,13 @@ class AlarmRepository {
           id: Value('missed_${alarm.id}_${nowUtc.millisecondsSinceEpoch}'),
           title: Value(
             alarm.type == AlarmType.buddy
-                ? 'Buddy Alarm Missed • ${alarm.title}'
-                : 'Group Alarm Missed • ${alarm.title}',
+                ? 'فات منبّه صديق • ${alarm.title}'
+                : 'فات منبّه مجموعة • ${alarm.title}',
           ),
           body: Value(
             alarm.participants.isNotEmpty
-                ? 'Participants notified: ${alarm.participants.map((p) => p.displayName).join(", ")}'
-                : 'Alarm was missed.',
+                ? 'المشاركون: ${alarm.participants.map((p) => p.displayName).join(", ")}'
+                : 'لم يتم الرد على المنبّه.',
           ),
           kind: Value(
             alarm.type == AlarmType.buddy ? 'buddy_missed' : 'group_change',
@@ -447,8 +510,26 @@ class AlarmRepository {
           isRead: const Value(false),
         ),
       );
+      await _publishStatusSafe(alarm, 'missed');
     }
     await _native.stopRinging();
+  }
+
+  Future<void> _publishStatusSafe(Alarm alarm, String status) async {
+    if (_remote == null || alarm.type == AlarmType.personal) return;
+    final myUid = _getCurrentUid?.call() ?? '';
+    if (myUid.isEmpty || myUid == 'local_user') return;
+    final myName = _getCurrentName?.call() ?? 'Buddy';
+    try {
+      await _remote!.publishAlarmStatusEvent(
+        alarmId: alarm.id,
+        alarmTitle: alarm.title,
+        alarmType: alarm.type.name,
+        actorUid: myUid,
+        actorName: myName,
+        status: status,
+      );
+    } catch (_) {}
   }
 
   Future<void> syncNativeEvents() async {
@@ -511,6 +592,9 @@ class AlarmRepository {
         );
         alarmMap[alarmId] = updatedAlarm;
         await saveAlarm(updatedAlarm, syncToRemote: false);
+        if (existing.type != AlarmType.personal) {
+          await _publishStatusSafe(existing, stateStr);
+        }
       }
     }
   }

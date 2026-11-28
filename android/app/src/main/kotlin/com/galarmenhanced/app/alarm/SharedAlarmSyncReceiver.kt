@@ -213,23 +213,9 @@ class SharedAlarmSyncReceiver : BroadcastReceiver() {
             .putLong("synced_shared_$alarmId", startAtMillis)
             .apply()
 
-        if (triggerAtMillis <= System.currentTimeMillis() + 3_000L) {
-            // Due right now (or just passed due to minor delay) — ring immediately!
-            try {
-                val ringIntent = Intent(context, AlarmRingingService::class.java).apply {
-                    putExtra("payload", payload.toString())
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(ringIntent)
-                } else {
-                    context.startService(ringIntent)
-                }
-            } catch (_: Throwable) {
-                MainActivity.scheduleWithAlarmManager(context, payload)
-            }
-        } else {
-            MainActivity.scheduleWithAlarmManager(context, payload)
-        }
+        // Always schedule via AlarmManager.setAlarmClock (even if due in 1.5s) so Android 14/15
+        // grants the AlarmClock full-screen activity launch exemption (identical to personal alarms).
+        MainActivity.scheduleWithAlarmManager(context, payload)
     }
 
     private fun getStringField(fields: JSONObject, key: String): String {
