@@ -128,6 +128,22 @@ void main() {
       expect(intent.title, 'معاد الدكتور');
     });
 
+    test('10b. Trailing relative hour & alef-maqsura trigger: فكرنى اخذ الدواء كمان ساعه', () {
+      final intent1 = VoiceAlarmParser.parse(
+        'فكرني اخذ الدواء كمان ساعه',
+        nowLocal: fixedNow,
+      );
+      expect(intent1.localDateTime, fixedNow.add(const Duration(hours: 1)));
+      expect(intent1.title, 'اخذ الدواء');
+
+      final intent2 = VoiceAlarmParser.parse(
+        'فكرنى اخذ الدواء كمان ساعه',
+        nowLocal: fixedNow,
+      );
+      expect(intent2.localDateTime, fixedNow.add(const Duration(hours: 1)));
+      expect(intent2.title, 'اخذ الدواء');
+    });
+
     test('11. Custom weekdays repeat: كل اتنين وخميس', () {
       final intent = VoiceAlarmParser.parse(
         'فكرني كل اتنين وخميس الساعة ٨ الصبح تمرين الجيم',
