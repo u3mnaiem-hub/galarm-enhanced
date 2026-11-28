@@ -149,6 +149,13 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
                         speak(text, lang)
                         result.success(true)
                     }
+                    "isArabicTtsAvailable" -> {
+                        result.success(isArabicTtsAvailable())
+                    }
+                    "installArabicTtsVoice" -> {
+                        openInstallArabicTtsVoice()
+                        result.success(true)
+                    }
                     "stopSpeaking" -> {
                         try {
                             tts?.stop()
@@ -425,18 +432,63 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
         }
     }
 
-    private fun resolveTtsLocale(languageTag: String): Locale {
+    private fun isArabicTtsAvailable(): Boolean {
+        val engine = tts ?: return false
+        if (!ttsReady) return false
+        val candidates = listOf(
+            Locale.forLanguageTag(DEFAULT_LOCALE),
+            Locale("ar", "SA"),
+            Locale(FALLBACK_LOCALE),
+        )
+        for (loc in candidates) {
+            val res = try {
+                engine.isLanguageAvailable(loc)
+            } catch (_: Throwable) {
+                TextToSpeech.LANG_NOT_SUPPORTED
+            }
+            if (res >= TextToSpeech.LANG_AVAILABLE) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun openInstallArabicTtsVoice() {
+        mainHandler.post {
+            try {
+                val installIntent = Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                activity.startActivity(installIntent)
+            } catch (_: Throwable) {
+                try {
+                    val ttsSettings = Intent("com.android.settings.TTS_SETTINGS").apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    activity.startActivity(ttsSettings)
+                } catch (_: Throwable) {
+                    openSpeechSettings()
+                }
+            }
+        }
+    }
+
+    private fun resolveTtsLocale(languageTag: String): Locale? {
+        val engine = tts ?: return null
         val primary = Locale.forLanguageTag(languageTag.ifBlank { DEFAULT_LOCALE })
-        val res = tts?.isLanguageAvailable(primary) ?: TextToSpeech.LANG_NOT_SUPPORTED
+        val res = engine.isLanguageAvailable(primary)
         if (res >= TextToSpeech.LANG_AVAILABLE) {
             return primary
         }
         if (languageTag.startsWith("ar", ignoreCase = true)) {
-            val fallback = Locale(FALLBACK_LOCALE)
-            val fbRes = tts?.isLanguageAvailable(fallback) ?: TextToSpeech.LANG_NOT_SUPPORTED
-            if (fbRes >= TextToSpeech.LANG_AVAILABLE) {
-                return fallback
+            for (fallback in listOf(Locale("ar", "SA"), Locale(FALLBACK_LOCALE))) {
+                val fbRes = engine.isLanguageAvailable(fallback)
+                if (fbRes >= TextToSpeech.LANG_AVAILABLE) {
+                    return fallback
+                }
             }
+            // Arabic TTS voice data is NOT installed on this device
+            return null
         }
         return primary
     }
@@ -449,6 +501,12 @@ class VoiceAssistantChannel(private val activity: Activity) : TextToSpeech.OnIni
         try {
             tts?.stop()
             val locale = resolveTtsLocale(languageTag)
+            if (locale == null) {
+                // Do not let an English TTS engine read only the digits in English
+                emitEvent(mapOf("type" to "tts_arabic_missing"))
+                emitEvent(mapOf("type" to "tts_done"))
+                return
+            }
             tts?.language = locale
             tts?.setSpeechRate(0.95f)
             tts?.setPitch(1.0f)

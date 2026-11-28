@@ -616,6 +616,24 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                     await prefs.setBool('skip_voice_confirmation', v);
                   },
                 ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.record_voice_over_rounded),
+                  title: Text(
+                    context.tr(
+                      'Install Arabic Speech Voice (TTS)',
+                      'تثبيت صوت النطق العربي (TTS)',
+                    ),
+                  ),
+                  subtitle: Text(
+                    context.tr(
+                      'Install Arabic voice data if confirmations do not speak in Arabic',
+                      'ثبّت حزمة الصوت العربي إذا لم ينطق الهاتف التأكيد باللغة العربية',
+                    ),
+                  ),
+                  trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+                  onTap: () => voice.installArabicTtsVoice(),
+                ),
               ],
             ),
           ),
@@ -1146,6 +1164,40 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
             ),
           ),
 
+          ListTile(
+            leading: const Icon(Icons.fullscreen_rounded),
+            title: Text(
+              context.tr(
+                'Full-Screen Lock-Screen Alerts',
+                'إذن إظهار شاشة المنبّه فوق القفل',
+              ),
+            ),
+            subtitle: Text(
+              context.tr(
+                'Required on Android 14/15 so alarms open full-screen instead of a small banner',
+                'مطلوب على أندرويد 14/15 لفتح شاشة المنبّه الكاملة بدلاً من إشعار صغير',
+              ),
+            ),
+            trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+            onTap: () => native.openFullScreenIntentSettings(),
+          ),
+          ListTile(
+            leading: const Icon(Icons.layers_rounded),
+            title: Text(
+              context.tr(
+                'Appear on Top (Overlay Permission)',
+                'الظهور فوق التطبيقات الأخرى',
+              ),
+            ),
+            subtitle: Text(
+              context.tr(
+                'Ensures full-screen ringing opens reliably on Samsung/Xiaomi/Oppo',
+                'يضمن فتح شاشة المنبّه الكاملة دائماً على سامسونج وشاومي وأوبو',
+              ),
+            ),
+            trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+            onTap: () => native.openOverlaySettings(),
+          ),
           ListTile(
             leading: const Icon(Icons.battery_saver),
             title: Text(

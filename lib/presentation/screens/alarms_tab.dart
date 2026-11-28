@@ -16,8 +16,46 @@ class AlarmsTab extends ConsumerStatefulWidget {
   ConsumerState<AlarmsTab> createState() => _AlarmsTabState();
 }
 
-class _AlarmsTabState extends ConsumerState<AlarmsTab> {
+class _AlarmsTabState extends ConsumerState<AlarmsTab>
+    with WidgetsBindingObserver {
   AlarmType? _filterType; // null = All
+  bool _fullScreenOk = true;
+  bool _overlayOk = true;
+  bool _bannerDismissed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    Future.microtask(_checkDisplayPermissions);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkDisplayPermissions();
+    }
+  }
+
+  Future<void> _checkDisplayPermissions() async {
+    try {
+      final native = ref.read(nativeAlarmChannelProvider);
+      final fs = await native.canUseFullScreenIntent();
+      final ov = await native.canDrawOverlays();
+      if (mounted) {
+        setState(() {
+          _fullScreenOk = fs;
+          _overlayOk = ov;
+        });
+      }
+    } catch (_) {}
+  }
 
   Future<void> _confirmDelete(
     BuildContext context,
@@ -108,6 +146,73 @@ class _AlarmsTabState extends ConsumerState<AlarmsTab> {
       ),
       body: Column(
         children: [
+          if (!_bannerDismissed && (!_fullScreenOk || !_overlayOk))
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFF59E0B)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.fullscreen_rounded,
+                    color: Color(0xFFB45309),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      !_fullScreenOk
+                          ? context.tr(
+                              'Enable Full-Screen Alerts so alarms show over lock screen.',
+                              'فعّل إذن «إشعارات ملء الشاشة» ليظهر المنبّه كاملاً فوق شاشة القفل.',
+                            )
+                          : context.tr(
+                              'Enable "Appear on top" for reliable full-screen alarm display.',
+                              'فعّل إذن «الظهور فوق التطبيقات» لضمان فتح شاشة المنبّه الكاملة.',
+                            ),
+                      style: const TextStyle(
+                        color: Color(0xFF78350F),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      backgroundColor: const Color(0xFFD97706),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: () {
+                      final native = ref.read(nativeAlarmChannelProvider);
+                      if (!_fullScreenOk) {
+                        native.openFullScreenIntentSettings();
+                      } else {
+                        native.openOverlaySettings();
+                      }
+                    },
+                    child: Text(
+                      context.tr('Enable', 'تفعيل'),
+                      style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 16, color: Color(0xFF92400E)),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () => setState(() => _bannerDismissed = true),
+                  ),
+                ],
+              ),
+            ),
           // Modern filter bar for Personal / Groups / Buddy
           Container(
             width: double.infinity,

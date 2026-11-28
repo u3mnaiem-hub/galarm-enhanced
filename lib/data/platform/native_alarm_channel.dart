@@ -104,6 +104,14 @@ class NativeAlarmChannel {
     await _channel.invokeMethod('openFullScreenIntentSettings');
   }
 
+  Future<bool> canDrawOverlays() async {
+    return await _channel.invokeMethod<bool>('canDrawOverlays') ?? true;
+  }
+
+  Future<void> openOverlaySettings() async {
+    await _channel.invokeMethod('openOverlaySettings');
+  }
+
   Future<bool> isIgnoringBatteryOptimizations() async {
     return await _channel.invokeMethod<bool>('isIgnoringBatteryOptimizations') ?? false;
   }

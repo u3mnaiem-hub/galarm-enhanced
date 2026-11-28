@@ -198,6 +198,20 @@ class NativeVoiceChannel {
     await _method.invokeMethod('speak', {'text': text, 'language': language});
   }
 
+  Future<bool> isArabicTtsAvailable() async {
+    try {
+      return await _method.invokeMethod<bool>('isArabicTtsAvailable') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> installArabicTtsVoice() async {
+    try {
+      await _method.invokeMethod('installArabicTtsVoice');
+    } catch (_) {}
+  }
+
   Future<void> stopSpeaking() async {
     await _method.invokeMethod('stopSpeaking');
   }

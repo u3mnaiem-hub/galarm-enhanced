@@ -617,8 +617,12 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
 
     _resetDraft();
 
+    bool arabicTtsReady = false;
     try {
-      await voice.speak(reply, language: _language);
+      arabicTtsReady = await voice.isArabicTtsAvailable();
+      if (arabicTtsReady) {
+        await voice.speak(reply, language: _language);
+      }
     } catch (_) {}
 
     if (mounted) {
@@ -626,8 +630,18 @@ class _VoiceAssistantSheetState extends ConsumerState<VoiceAssistantSheet>
       Navigator.of(context).pop(alarm);
       messenger?.showSnackBar(
         SnackBar(
-          content: Text(reply),
-          duration: const Duration(seconds: 3),
+          content: Text(
+            arabicTtsReady
+                ? reply
+                : '$reply\n(صوت النطق العربي غير مثبّت على الهاتف)',
+          ),
+          duration: Duration(seconds: arabicTtsReady ? 3 : 6),
+          action: arabicTtsReady
+              ? null
+              : SnackBarAction(
+                  label: 'تثبيت الصوت العربي',
+                  onPressed: () => voice.installArabicTtsVoice(),
+                ),
         ),
       );
     }
